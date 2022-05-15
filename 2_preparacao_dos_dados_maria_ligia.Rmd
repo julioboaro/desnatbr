@@ -1,0 +1,169 @@
+---
+title: "Análise grandes desastres naturais"
+author: "Mariana, Júlio, Lucas, Maria Lígia, Newton"
+date: "02/05/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(janitor)
+```
+
+
+## Importação
+
+Esta é uma área de texto para apresentar as análises:
+
+```{r}
+dados <- readxl::read_xlsx("data/emdat_public_2022_05_02_query_uid-MrgSmc.xlsx",
+                           skip = 6) %>% 
+  clean_names()
+```
+
+
+## Variáveis
+
+```{r}
+names(dados)
+```
+
+## Glimpse para conferir se tipos das variáveis carregaram como esperado
+
+```{r}
+glimpse(dados)
+```
+
+
+## Frequência por Grupo de Desastre
+
+```{r}
+dados %>% 
+  count(disaster_group)
+```
+
+
+## Filtro com foco no nosso objetivo
+
+```{r}
+dados <- dados %>% 
+  filter(disaster_group == "Natural")
+dados
+```
+
+
+## Contagem de desastres por subgrupo
+
+```{r}
+dados %>% 
+  count(disaster_subgroup)
+```
+
+
+## Quebra da coluna de codificação em linhas
+
+```{r}
+# Vamos utilizar uma função do pacote tidyr, que também faz parte do tidyverse
+#tidyr::separate_rows()
+
+
+```
+
+
+DAQUI PARA FRENTE EU, MARIA LIGIA, TENTEI LIMPAR PARA CONSEGUIR PUXAR OS CÓDIGOS. E NÃO, NÃO ACHEI UM DE->PARA DO TAL CÓDIFO GAUL. SEGUE O QUE EU FIZ (SCRIPT SALVO TAMBÉM NA PASTA NO DRIVE):
+
+## Identificação dos códigos das cidades
+
+#Uma vez feita a primeira limpeza da base, tirando o cabeçalho nulo e excluindo espaços do nome das variáveis, fiz um objeto para separarmos os adm_code dos locais afetados, resultando em um total de 624 linhas.
+
+```{r}
+citydados <- dados %>% 
+  select(adm_level,admin1_code,admin2_code, geo_locations) %>% 
+  arrange(adm_level) %>% 
+  tidyr::separate_rows(admin1_code, sep = ";",convert=TRUE) %>% 
+  tidyr::separate_rows(admin2_code, sep = ";",convert=TRUE)
+
+#Criamos um novo objeto para selecionar apenas as colunas de códigos e unificá-los - códigos dos Estados (Adm1)
+citycodes <- citydados %>% 
+  select(adm_level, admin1_code, admin2_code) %>% 
+  unique() %>% 
+  count(admin1_code) %>% 
+  arrange(desc(n))
+    
+citycodes #Estados - 25 resultados únicos
+#Há 218 registros agrupados numa única linha NA, ou seja, sem atribuição de admin1_code. Das que tem admin1_code atribuído, temos 24 registros, sendo que 24 foram na de código 677, 16 na de código 672, 10 na de código 691, 8 na de código 683 e 689, 7 na de código 676, 6 na de código 671, 2 na de código 688 e demais 16 registros com apenas uma ocorrência. Observe-se que há linhas que misturam adm_level 1 e 2. A síntese aqui foi feita pelo código da localidade, e não pelo adm_level.
+```
+
+#Continuando, faremos o mesmo para contabilizar a quantidade de linhas com registros da variável admin2_code (municípios).
+```{r}
+citycodes2 <- citydados %>% 
+  select(adm_level, admin1_code, admin2_code) %>% 
+  unique() %>% 
+  count(admin2_code) %>% 
+  arrange(desc(n))
+
+citycodes2 #municípios
+#Verifivamos que ficaram 253 registros, sendo 24 sem preenchimento para a variável admin1_code e os demais 229 (90,51%) com poucas repetições, sendo 3 a maior frequência identificada.
+   
+```
+Faremos um teste para separar o nome das localidades onde ocorreu o desastre, tendo em vista que os códigos utilizados na planilha não conversam com os códigos do IBGE.
+```{r}
+localidades <- dados %>% 
+  select(adm_level,admin1_code,admin2_code, geo_locations) %>% 
+  arrange(adm_level) %>% 
+  tidyr::separate_rows(geo_locations, sep = ",",convert=TRUE) %>% 
+  count(geo_locations) %>% 
+  arrange(desc(n))
+
+localidades
+
+```
+###Observação importante:
+Dos 327 registros, 139 (42,50%) não tinham indicação de localização. Os demais 188 (57,49%) registros estão separados em linhas específicas, sendo que se perdeu a informação da coluna 1, que era o adm_level, ou seja, a qual nível se refere (estado ou município). Há linhas com os dois números atribuídos, talvez por se tratar de município com nome repetido, porém de estados diferentes. Em verificação visual identificou-se que nos registros de eventos em que acontece de haver nome de Estado e Município, os municípios detalhados não são do(s) estado(s) indicados.
+Ex: Rio De Janeiro (Adm1). Cajamar, Francisco Morato, Guarulhos, Itapevi, Mairipora (Adm2).
+
+#Vale destacar também que todas as linhas têm indicação da abrangência com "(Adm.1)" ou "(Adm.2)" ao final da linha ou do trecho que trata do estado ou município. Tomar cuidado especial com Rio de Janeiro e São Paulopara não constabilizar erroneamente como Estado ou Município.
+ Dito isto, as quantidades de eventos dos estados e municípios de São Paulo e Rio de Janeiro estão com contagens equivocadas, pois ficaram sem distinção de em qual recorte ocorreram.
+
+#Abrindo a base de dados GAUL - Global Administrative Unit Layers (FAO) - Parte 1 - admin1_code (Estados)
+## Utilizada para codificar as cidades e estados. Faremos isso para associar às cidades o código do município e do estado do IBGE, e assim, conseguirmos fazer a união dos dados dos desastres com os dados sociodemográficos.
+
+Site de onde foi feito o download do arquivo "gaul_adm1.csv": https://data.amerigeoss.org/nl/dataset/regional-boundaries-gaul-global-admin-1
+
+```{r}
+gaul1 <- read.csv("data/gaul_adm1.csv") %>% 
+  select(admin1_code = gaul_adm1,adm1_name,str1_year,status,disp_area) %>% 
+  right_join(citycodes,gaul1,by = "admin1_code")
+
+gaul1 #códigos dos Estados e nomes
+
+#A junção das duas bases retornou 25 objetos para os quais será necessário atribuir o código do IBGE para o Estado (UF)
+
+```
+
+#Abrindo a base de dados GAUL - Global Administrative Unit Layers (FAO) - Parte 2 - admin2_code (Municípios)
+Fonte: https://data.amerigeoss.org/nl/dataset/regional-boundaries-gaul-global-admin-2
+
+```{r}
+gaul2 <- read.csv("gaul_adm2.csv") %>% 
+  select(admin2_code = gaul_adm2,adm2_name,str2_year,status,disp_area) %>% 
+  right_join(citycodes2,gaul2,by = "admin2_code")
+
+gaul2 #códigos dos municípios e nomes
+
+```
+
+
+##Tentaremos curzar os nomes com a planilha do IBGE contendo todos os municípios brasileiros, pega no site do IBGE (download no shapefile, sendo que .dfb é o arquivo do pacote .shp onde ficamarmazenados os dados tabulares).
+
+```{r}
+munic_cod2 <- foreign::read.dbf("BR_Municipios_2021.dbf")
+munic_cod2 <- munic_cod2 %>% 
+  select(CD_MUN,adm2_name = NM_MUN, SIGLA, AREA_KM2) %>% 
+  inner_join(munic_cod2,gaul2, by = adm2_name)
+
+#PAREI AQUI! DEU PROBLEMA POR CONTA DA CODIFICAÇÃO DO DFB E SINAIS. PRECISAVA ACHAR UM CÓDIGOPARA CONFERIR ISSO.
+
+

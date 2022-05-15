@@ -1,0 +1,154 @@
+---
+title: "Análise grandes desastres naturais"
+author: "Mariana, Júlio, Lucas, Maria Lígia, Newton"
+date: "02/05/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(readr)
+library(janitor)
+library(readODS)
+```
+
+
+## Importação
+
+Esta é uma área de texto para apresentar as análises:
+
+```{r}
+dados <- readxl::read_xlsx("data/emdat_public_2022_05_02_query_uid-MrgSmc.xlsx",
+                           skip = 6) %>% 
+  clean_names()
+```
+
+
+## Variáveis
+
+```{r}
+names(dados)
+```
+
+## Glimpse para conferir se tipos das variáveis carregaram como esperado
+
+```{r}
+glimpse(dados)
+```
+
+
+## Frequência por Grupo de Desastre
+
+```{r}
+dados %>% 
+  count(disaster_group)
+```
+
+
+## Contagem de desastres por subgrupo
+
+```{r}
+dados %>% 
+  count(disaster_subgroup)
+```
+
+
+
+## Frequência por Grupos, subgrupos, tipos, subtipos
+
+```{r}
+dados %>% 
+  filter(disaster_group == "Natural") %>% 
+  count(disaster_subgroup, disaster_type, disaster_subtype, disaster_subsubtype, sort = T)
+```
+
+
+
+
+## Frequência por Grupos, subgrupos, tipos, subtipos
+
+```{r}
+dados %>% 
+  filter(disaster_group == "Technological") %>% 
+  count(disaster_subgroup, disaster_type, disaster_subtype, sort = T)
+```
+
+
+
+## Filtro com foco no nosso objetivo
+
+```{r}
+dados <- dados %>% 
+  filter(disaster_group == "Natural")
+dados
+```
+
+
+A partir daqui precisamos separar os eventos por unidades territoriais político-administrativas: municípios e estados
+
+
+## Quebra da coluna de codificação em linhas
+
+```{r}
+dados <- dados %>% 
+  tidyr::separate_rows(admin1_code, sep = ";") %>%
+  tidyr::separate_rows(admin2_code, sep = ";")
+
+dados %>%  # Conferindo
+  select(dis_no, adm_level, admin1_code, admin2_code)
+```
+
+
+## Carrega codificação GAUL
+
+Somente nível admin1 (Estados)
+
+Code List (Gaul - Global - Admin 1)
+Fonte: https://data.amerigeoss.org/nl/dataset/regional-boundaries-gaul-global-admin-1
+
+```{r}
+gaul1 <- read_csv("data/gaul_adm1.csv",
+                 col_types = cols(gaul_adm1 = "c"))
+
+gaul2 <- read_csv("data/gaul_adm2.csv",
+                 col_types = cols(gaul_adm2 = "c"))
+
+```
+
+
+## Codificação IBGE (Base dos Dados)
+
+https://www.ibge.gov.br/explica/codigos-dos-municipios.php
+
+```{r}
+mun <- read_ods("data/RELATORIO_DTB_BRASIL_MUNICIPIO.ods") %>% 
+  clean_names()
+
+# Selecionando o que interessa
+mun <- mun %>% 
+  select(uf, nome_uf, municipio, codigo_municipio_completo, nome_municipio)
+```
+
+
+Problema: queremos cruzar nossos territórios com indicadores do IBGE mas não temos código IBGE na nossa base.
+
+Objetivo: Juntar códigos de Estados e Municípios do IBGE para podermos fazer cruzamentos. 
+
+Como? Com os nomes dos municípios e estados.
+
+```{r}
+dados <- gaul1 %>% 
+  select(gaul_adm1, adm1_name) %>%
+  right_join(dados, by = c("gaul_adm1" = "admin1_code"))
+
+dados <- gaul2 %>% 
+  select(gaul_adm2, adm2_name) %>%
+  right_join(dados, by = c("gaul_adm2" = "admin2_code"))
+```
+
+
+
+
+
