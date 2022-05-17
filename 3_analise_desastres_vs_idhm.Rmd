@@ -1,0 +1,57 @@
+---
+title: "Análise desastres vs. IDH(M)"
+author: "Júlio Boaro"
+date: "16/05/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(readr)
+```
+
+## Importa
+
+```{r}
+data <- read_csv("data/desastres_por_uf_e_mun.csv")
+
+idh <- read_csv("data/IDH_UF_1991-2000-2010.csv") %>% 
+  clean_names(
+    #use_make_names = T
+    )
+  
+```
+
+
+## Análise de Estados considerando IDH fixo para a década
+
+```{r}
+data <- data %>% 
+  mutate(year2idh = case_when(year >= 1986 & year <= 1995 ~ 1991,
+                              year >= 1996 & year <= 2005 ~ 2000,
+                              year >= 2006 & year <= 2015 ~ 2010)) %>% 
+  select(dis_no, year, year2idh, everything()) %>%  # Permite reordenar
+  left_join(idh, by = c("nome_uf" = "localidade"))
+
+# Converte valores IDH de formato wide para long
+idh <- idh %>% 
+  rename(`1991` = x1991,
+         `2000` = x2000,
+         `2010` = x2010) %>% 
+  tidyr::pivot_longer(cols = `1991`:`2010`,
+                      names_to = "ano",
+                      values_to = "IDH")
+
+# Join
+data <- data %>% 
+  left_join(idh, by = )
+
+```
+
+
+
+
+
+

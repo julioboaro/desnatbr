@@ -178,16 +178,31 @@ gaul_ibge_estados <- dados %>%
   distinct(admin1_code, adm1_name) %>% 
   filter(!is.na(adm1_name)) %>% 
   arrange(adm1_name) %>% 
-  left_join(ibge_estados, by = c("adm1_name" = "nome_uf2"))
+  left_join(ibge_estados, by = c("adm1_name" = "nome_uf2")) %>% 
+  select(-adm1_name)  # Trabalharemos apenas com códigos
+  
 
 gaul_ibge_mun <- dados %>% 
   distinct(admin2_code, adm2_name) %>% 
   filter(!is.na(adm2_name)) %>% 
   arrange(adm2_name) %>% 
   left_join(ibge_municipios, by = c("adm2_name" = "nome_municipio2")) %>% 
-  arrange(codigo_municipio_completo)
+  arrange(codigo_municipio_completo) %>% 
+  select(-adm2_name)
+  
 ```
 
+
+## Último passo: juntar código IBGE na base de desastres
+
+```{r}
+dados <- dados %>% 
+  left_join(gaul_ibge_estados, by = "admin1_code") %>% 
+  left_join(gaul_ibge_mun, by = "admin2_code")
+
+dados %>% 
+  write_csv("data/desastres_por_uf_e_mun.csv")
+```
 
 
 
