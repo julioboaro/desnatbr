@@ -1,0 +1,446 @@
+---
+title: "Estatística Inferencial"
+author: "Júlio Boaro, Lucas Bicalho, Maria Ligia N G Vianna, Mariana Gomes e Newton Krüger"
+date: "16/06/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(broom)
+library(janitor)
+library(rmarkdown)
+library(knitr)
+library(rstatix)
+library(DescTools)
+library(lubridate)  # make_date()
+library(kableExtra)
+
+options(knitr.kable.NA = "",
+        scipen = 999)
+```
+
+
+## Importação
+
+```{r}
+dados <- readxl::read_xlsx("data/emdat_public_2022_05_02_query_uid-MrgSmc.xlsx",
+                           skip = 6) %>% 
+  clean_names()
+```
+
+
+## Tradução de classificações
+
+```{r}
+dados <- dados %>%
+  mutate(
+    subgrupo = case_when(
+      disaster_subgroup == "Biological" ~ "Biológico",
+      disaster_subgroup == "Climatological" ~ "Climatológico",
+      disaster_subgroup == "Geophysical" ~ "Geofísico",
+      disaster_subgroup == "Hydrological" ~ "Hidrológico",
+      disaster_subgroup == "Meteorological" ~ "Meteorológico"),
+    tipo = case_when(
+      disaster_type == "Epidemic" ~ "Epidemia",
+      disaster_type == "Insect infestation" ~ "Infestação de insetos",
+      disaster_type == "Drought" ~ "Seca",
+      disaster_type == "Wildfire" ~ "Incêndio",
+      disaster_type == "Earthquake" ~ "Terremoto",
+      disaster_type == "Flood" ~ "Inundação",
+      disaster_type == "Landslide" ~ "Deslizamento",
+      disaster_type == "Extreme temperature" ~ "Temperatura Extrema",
+      disaster_type == "Storm" ~ "Tempestade"),
+    subtipo = case_when(
+      disaster_subtype == "Drought" ~ "Seca",
+      disaster_subtype == "Bacterial disease" ~ "Doença bacteriana",
+      disaster_subtype == "Riverine flood" ~ "Inundação",
+      disaster_subtype == "Landslide" ~ "Deslizamento",
+      disaster_subtype == "Forest fire" ~ "Queimada",
+      disaster_subtype == "Flash flood" ~ "Enxurrada",
+      disaster_subtype == "Heat wave" ~ "Onda de calor",
+      disaster_subtype == "Cold wave" ~ "Onda de frio",
+      disaster_subtype == "Convective storm" ~ "Tempestade convectiva",
+      disaster_subtype == "Ground movement" ~ "Movimento do solo",
+      disaster_subtype == "Viral disease" ~ "Doença viral",
+      disaster_subtype == "Mudslide" ~ "Deslizamento de terra (lama)",
+      disaster_subtype == "Tropical cyclone" ~ "Ciclone tropical",
+      disaster_subtype == "Extra-tropical storm" ~
+        "Tempestade extra-tropical",
+      disaster_subtype == "Land fire (Brush, Bush, Pasture)" ~
+        "Incêndio terrestre (mato, arbusto, pasto)"))
+```
+
+
+
+## Analisando somente os Hidrológicos
+
+```{r}
+dados_raw <- dados
+dados <- dados %>% 
+  filter(disaster_group == "Natural",
+         disaster_subgroup == "Hydrological")
+```
+
+
+## Contagem por subtipo
+
+```{r}
+dados %>% 
+  count(tipo,
+        subtipo,
+        sort = T) %>% 
+  kable()
+```
+
+
+
+## Teste de formatação de tabela
+
+```{r}
+dados %>% 
+  select(start_year, location, tipo, subtipo, total_affected, total_deaths,
+         total_damages_000_us) %>% 
+  arrange(desc(total_affected)) %>% 
+  head(5) %>% 
+  kbl(col.names = c("Ano", "Local", "Tipo de desastre", "Subtipo de desastre",
+                    "Pessoas afetadas", "Mortes", "Perdas (US$ corrigidos)")) %>% 
+  kable_paper(full_width = F) %>% 
+  kable_classic()
+```
+
+
+
+
+## Análise inferencial - Mortes
+
+
+### Separando 3 grupos para análise
+
+```{r}
+dados <- dados %>% 
+  mutate(grupo = ifelse(disaster_subtype == "Riverine flood", "Inundação", NA),
+         grupo = ifelse(disaster_type == "Landslide", "Deslizamento", grupo),
+         grupo = ifelse(disaster_subtype == "Flash flood", "Enxurrada", grupo))
+
+dados <- dados %>% 
+  filter(!is.na(grupo))
+
+dados %>%  
+  count(grupo,
+        sort = T) %>% 
+  paged_table()
+```
+
+
+
+
+### Criação de variável de período (em dias)
+
+```{r}
+dados <- dados %>% 
+  mutate(date1 = make_date(start_year, start_month, start_day),
+         date2 = make_date(end_year, end_month, end_day),
+         days = as.integer(date2 - date1))
+```
+
+
+
+
+### Criação de variável log das mortes
+
+```{r}
+dados <- dados %>% 
+  mutate(mortes_log = log10(total_deaths))
+```
+
+
+
+### Teste de normalidade no log das mortes
+
+```{r}
+shapiro.test(dados$mortes_log) %>% 
+  tidy() %>% 
+  paged_table()
+```
+- Não descarta-se a hipótese nula: Distribuição normal dos dados
+
+
+
+### Teste de homogeneidade de variâncias
+
+```{r}
+dados %>% 
+  levene_test(mortes_log ~ grupo) %>% 
+  paged_table()
+```
+- Não descarta-se a hipótese nula: Assume-se a homogeneidade de variâncias entre os grupos
+
+
+### Teste ANOVA
+
+```{r}
+modelo <- aov(mortes_log ~ grupo, data = dados)
+Anova(modelo) %>% 
+  paged_table()
+```
+- p-valor < 5%, descartamos a hipótese nula: há diferença significante entre 1 ou mais pares de grupos
+
+
+### Posthoc da ANOVA
+
+Quais grupos têm diferença significante?
+
+```{r}
+PostHocTest(modelo, method = "bonf")
+```
+
+- Diferença significante entre os grupos Enchente (rio) e Deslizamento. Deslizamento mata significativamente mais.
+
+
+
+### Teste de normalidade nos dados sem log (não usar no relatório)
+
+```{r}
+shapiro.test(dados$total_deaths) %>% 
+  tidy() %>% 
+  paged_table()
+```
+Distribuição não normal
+
+
+### Teste de diferença entre grupos
+
+```{r}
+kruskal.test(total_deaths ~ grupo, data = dados) %>% 
+  tidy() %>% 
+  paged_table()
+```
+- Há diferença significativa entre pelo menos 2 grupos
+
+
+### Teste entre pares
+
+```{r}
+pairwise.wilcox.test(dados$total_deaths, dados$grupo,
+                     p.adjust.method = "BH") %>% 
+  tidy() %>% 
+  paged_table()
+```
+- Há diferença significativa entre os grupos "Reverine flood" e "Landslide"
+
+
+### Boxplot
+
+```{r}
+dados %>% 
+  ggplot(aes(y = total_deaths, x = grupo, fill = grupo)) +
+  geom_boxplot() +
+  labs(#title = "Total de mortes por grupo de desastre",
+       y = "Total de mortes",
+       x = "Grupo de desastre") +
+  scale_y_log10() +
+  theme_classic() +
+  theme(legend.position = "none")
+
+ggsave("img/relatorio_g09_mortes.png", width = 13, height = 7, units = "cm")
+```
+
+Diferença estatisticamente significante entre os grupos "Landslide" e "Reverine flood"
+
+
+
+## Análise inferencial - Danos materiais
+
+### Teste de normalidade
+
+```{r}
+dados <- dados %>% 
+  mutate(danos_log = log10(total_damages_adjusted_000_us))
+
+shapiro.test(dados$total_damages_adjusted_000_us) %>% 
+  tidy() %>% 
+  paged_table()
+
+shapiro.test(dados$danos_log) %>% 
+  tidy() %>% 
+  paged_table()
+```
+- Tanto a aplicação do teste de normalidade na variável de danos, quanto na variável do log dos danos deram p valor < 5%, o que nos faz rejeitar a hipótese nula, que é de normalidade. Portanto a distribuição dos dados não é normal.
+
+
+### Teste de diferença entre grupos (não-paramétrico)
+
+```{r}
+kruskal.test(total_damages_adjusted_000_us ~ grupo, data = dados) %>% 
+  tidy() %>%
+  paged_table()
+
+kruskal.test(danos_log ~ grupo, data = dados) %>% 
+  tidy() %>% 
+  paged_table()
+```
+- Teste não-paramétrico com p-valor > 0,05 nos faz assumir a hipótese nula de que não há diferenças significantes entre os grupos
+
+
+### Boxplot
+
+```{r}
+dados %>% 
+  ggplot(aes(y = total_damages_adjusted_000_us, x = grupo, fill = grupo)) +
+  geom_boxplot() +
+  labs(#title = "Total de mortes por grupo de desastre",
+       y = "Total de prejuízos (US$ corrigidos)",
+       x = "Grupo de desastre") +
+  scale_y_log10() +
+  theme_classic() +
+  theme(legend.position = "none")
+
+ggsave("img/relatorio_g10_prejuizos_materiais.png", width = 13, height = 8, units = "cm")
+```
+
+
+
+
+## Análise inferencial - População afetada
+
+### Teste de normalidade
+
+```{r}
+dados <- dados %>% 
+  mutate(afetadas_log = log10(total_affected))
+
+shapiro.test(dados$total_affected) %>% 
+  tidy() %>% 
+  paged_table()
+
+shapiro.test(dados$afetadas_log) %>% 
+  tidy() %>% 
+  paged_table()
+```
+- Aplicação do teste de normalidade no log da população afetada com p-valor > 5% nos leva a aceitar a hipótese nula, a distribuição dos dados é normal.
+
+
+### Teste de homogeneidade de variâncias
+
+```{r}
+dados %>% 
+  levene_test(afetadas_log ~ grupo) %>% 
+  paged_table()
+```
+
+- p-valor > 5%, não descarta-se a hipótese nula. Há homogeneidade de variâncias nos grupos
+
+
+### Teste ANOVA
+
+```{r}
+modelo <- aov(afetadas_log ~ grupo, data = dados)
+Anova(modelo) %>% 
+  paged_table()
+```
+- p-valor < 5%, descartamos a hipótese nula: há diferença significante entre pelo menos 2 grupos
+
+
+### Posthoc da ANOVA
+
+Quais grupos têm diferença significante?
+
+```{r}
+PostHocTest(modelo, method = "bonf")
+```
+
+- Diferença significante entre os grupos Enchente (rio) e Deslizamento
+
+
+### Boxplot
+
+afetadas_log
+
+```{r}
+dados %>% 
+  ggplot(aes(y = total_affected, x = grupo, fill = grupo)) +
+  geom_boxplot() +
+    labs(#title = "Total de mortes por grupo de desastre",
+       y = "População total afetada",
+       x = "Grupo de desastre") +
+  scale_y_log10() +
+  theme_classic() +
+  theme(legend.position = "none")
+
+ggsave("img/relatorio_g11_populacao_afetada.png", width = 13, height = 7, units = "cm")
+```
+
+- Desastre "Reverine flood" provoca significativamente mais danos que o desastre "Landslide"
+
+
+
+
+## Análise inferencial - Período de duração do desastre (dias)
+
+### Teste de normalidade
+
+```{r}
+shapiro.test(dados$days) %>% 
+  tidy() %>% 
+  paged_table()
+
+dados_temp <- dados %>% 
+  filter(days > 0) %>% 
+  mutate(days_log = log10(days))
+
+shapiro.test(dados_temp$days_log) %>% 
+  tidy() %>% 
+  paged_table()
+```
+- p-valor < 5%, descartamos a hipótese nula, os dados não têm distribuição normal
+
+
+### Teste de diferença entre grupos (não-paramérico)
+
+```{r}
+kruskal.test(days ~ grupo, data = dados) %>% 
+  tidy() %>% 
+  paged_table()
+```
+- p-valor < 5%, descartamos a hipótese nula, há diferença significante entre pelo menos 2 grupos
+
+
+### Teste entre pares
+
+```{r}
+pairwise.wilcox.test(dados$days, dados$grupo,
+                     p.adjust.method = "BH") %>% 
+  tidy() %>% 
+  paged_table()
+```
+- Diferença significante entre os grupos Reverine flood e Flash flood
+
+
+### Boxplot
+
+```{r}
+dados %>% 
+  # mutate(grupo = ifelse(disaster_subtype == "Riverine flood", "Inundação", NA),
+  #        grupo = ifelse(disaster_type == "Landslide", "Deslizamento", grupo),
+  #        grupo = ifelse(disaster_subtype == "Flash flood", "Enxurrada", grupo)) %>% 
+  #   mutate(date1 = make_date(start_year, start_month, start_day),
+  #        date2 = make_date(end_year, end_month, end_day),
+  #        days = as.integer(date2 - date1)) %>% 
+  ggplot(aes(y = days, x = grupo, fill = grupo)) +
+  geom_boxplot() +
+      labs(#title = "Total de mortes por grupo de desastre",
+       y = "Duração do desastre (dias)",
+       x = "Grupo de desastre") +
+  #scale_y_log10() +
+  theme_classic() +
+  theme(legend.position = "none")
+
+ggsave("img/relatorio_g12_periodo_duracao.png", width = 13, height = 7, units = "cm")
+```
+
+
+
+## Análise inferencial - Área atingida (não fazer, não temos dados suficientes)

@@ -1,0 +1,1060 @@
+---
+title: "Analise dos impactos de grandes desastres naturais no Brasil - Parte 5.2 - Enfoque para os desastres hidrológicos"
+author: Júlio Boaro, Lucas Bicalho, Maria Ligia N G Vianna, Mariana Gomes e Newton Krüger
+date: '2022-06-14'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(janitor)
+library(kableExtra)
+library(knitr)
+library(ggplot2)
+library(ggcorrplot)
+library(readxl)
+library(tidyverse)
+library(summarytools)
+#library(xlsx)
+```
+
+# LEIA-ME: PARA ORIENTAR AS PRÓXIMAS ANÁLISES
+
+## PERGUNTA DE PESQUISA
+Considerando a base de dados de grandes eventos, existe proporcionalidade entre perdas, mortes e afetados em relação à área afetada pelos desastres hidrológicos?
+
+## FEITAS (separadas por MORTES, PESSOAS AFETADAS, PERDAS, WILCOX TEST E CORRELAÇÃO DE PEARSON)
+- Contagem de desastres que tem informação de área afetada (variável disaster magnitude value - dis_mag_value);
+- filtro para desastres hidrológicos (hidro = 185 no total);
+- filtro para desastres hidrológicos com informação de área (hidro2 = 49 no total) - usei esse para os cálculos que envolviam área;
+- filtro para inundações, independemente de ter ou não a área informada (inund = 160 observações) - usei esse para outras análises referentes a inundações que não dependiam de área;
+- Histograma de mortes para desastres hidrológicos (frequência absoluta, relativa e acumulada). Obs: considerando o total de desastres hidrológicos, e não os que tem informação sobre magnitude (dis_mag_value).
+- histograma de pessoas afetadas - falta suavizar visualização
+- histograma de perdas - idem
+- gráfico de dispersão mortes x área
+- gráfico de dispersão mortes x perdas
+- gráfico de dispersão pessoas afetadas x área
+- gráfico de dispersão pessoas afetadas x perdas
+- gráfico de dispersão mortes e pessoas afetadas x área
+- gráfico de dispersão mortes e pessoas afetadas x perda
+- gráfico de dispersão perdas x área
+- teste de normalidade Shapiro Wilk para as 4 variáveis em análise
+- teste de Wilcox para os conjuntos acima
+- Correlação de Spearman para os conjuntos acima (correlação de variáveis)
+- Matriz de Correlação e Gráfico de Coeficiente e Correlação de Spearman (item 11) - falta configurar rótulos dos eixos. Tentei com mutate e não funcionou.
+
+## A FAZER
+- Teste de normalidade das variáveis de Shapiro Wilk
+- Teste de homogeneidade das variáveis e dos grupos (não sei se aplica, pois aqui estamos vendo variáveis de uma mesma população, e não de grupos distintos)
+- Calcular período em dias para usar como variável quantitativa
+
+
+## POSSÍVEIS ANÁLISES PARA PRÓXIMOS TRABALHOS
+- Dos locais com mortes, identificar quais tiveram mais mortes e comparar com eventos no mesmo Estado ou no mesmo local em que não houve mortes, para entender se há correlação com os indicadores (densidade demográfica, população, IDH, IVS dimensão território) - prejudicado pela questão de tempo e de cruzamento de bases de dados.
+- Comparar IDH dos locais que tiveram mortes X IDH dos locais que não tiveram mortes.
+- Municípios que tiveram mortes X Municípios que não tiveram mortes (vai ver média ponderada? Mediana?). Como vai resumir os dados pelos grupos? Poderia ser ponderado pela população. Desastres tem um ano.
+
+
+## COMENTÁRIOS GERAIS
+- Variáveis quantitativas, se categorizadas em qualitativa ordinal, podem ser usadas com outra qualitativa (análise qui quadrado).
+
+## QUESTÕES METODOLÓGICAS
+- Filtro com os eventos hidrológicos (frequência de subsubtipos)* não considerei importante fazer, pois focaremos nas inundações. Fazer análise inferencial entre esses diferentes tipos para mortes, danos e pessoas afetadas.
+- Teste T Student (até 2), ou ANOVA (3+ = TStudent para isso) - (urbano, alta intensidade, etc) e tem características próprias. Para usar ANOVA, tem que testar a normalidade dos dados. Se os grupos não tiverem normalidade e os grupos não tiverem homogeneidade de variância, vai para métodos não paramétricos. 
+
+
+#1) Diretório de trabalho e importação da base de dados (já filtrada por desastres naturais)
+```{r}
+#Diretorio de trabalho
+# setwd("C:/Users/mali/Documents/PROFISSIONAL/MESTRADO_UNIFESP/DISCIPLINAS/CIENCIA_DE_DADOS_1/PROJETOS/desastres")
+dados <- read_excel("data/emdat_public_2022_04_28_query_uid-PIeji1.xlsx", sheet = "emdat data", skip = 6) %>%  # Obs: quando não especifiquei sheet e skip, apareceu dados com 59 obs e 4 variáveis (ano, contagem de anos (total de eventos), total de mortes, total de afetados). Correlação da 3ª à 8ª coluna
+  clean_names()
+
+glimpse(dados)
+
+dados0 = read_excel("data/emdat_public_2022_04_28_query_uid-PIeji1.xlsx")
+dados.ok <- dados[,3:8] #Seleciona colunas de dados
+```
+
+#2) Medidas resumo de dados para identificação de variáveis com campos preenchidas com NA.
+```{r}
+#dados_resumo <- 
+  summary(dados)
+```
+Comentários sobre os resultados:
+- Variáveis nominais não classificadas;
+- Variáveis quantitativas com grande quantidades de valores NA.
+
+Destacam-se pela quantidade de NA:
+
+a) Reconstruction Costs ('000 US$): 253 
+b) Insured Damages ('000 US$): 252
+c) Aid Contribution: 250
+d) No Injured: 202
+e) No Homeless: 198
+f) Dis Mag Value: 195
+g) Total Damages ('000 US$): 172 
+h) Total Damages, Adjusted ('000 US$): 175
+i) No Affected: 96
+j) Start Day: 81
+k) End Day: 78  
+l) Total Deaths: 51
+m) Total Affected:45
+n) End Month: 17   
+o) Start Month: 7
+p) CPI: 5
+ 
+Considerando que baseou-se em números com pouca quantidade de registros, foram feitos filtros específicos para entender quantos eventos têm dados de mortes, pessoas afetadas, perdas materiais, já que esses foram os dados que utilizamos para as análises (juntamente com os subgrupos).
+
+
+#3) Contagem de desastres que tem informação de área afetada (variável disaster magnitude value - dis_mag_value)
+```{r}
+dados2 <- dados %>% 
+  mutate (start_month = as.numeric(start_month)) %>% 
+  filter(disaster_group == "Natural")
+
+
+dados2 %>% 
+  filter(!is.na(dis_mag_value)) %>% 
+  group_by(disaster_type) %>% 
+  summarise(dis_mag_value) %>% 
+  count() %>% 
+  arrange(desc(n))
+```
+
+
+# #TRADUÇÃO DE SUBGRUPOS, TIPOS E SUBTIPOS DE DESASTRES E CORREÇÃO DE NOMES
+```{r}
+dados3 <- dados2 %>% 
+  mutate(subgrupo = ifelse(disaster_subgroup == "Biological", "Biológico",NA),
+         subgrupo = ifelse (disaster_subgroup == "Climatological", "Climatológico", subgrupo),
+         subgrupo = ifelse (disaster_subgroup == "Geophysical", "Geofísico", subgrupo),
+         subgrupo = ifelse (disaster_subgroup == "Hydrological", "Hidrológico", subgrupo),
+         subgrupo = ifelse (disaster_subgroup == "Meteorological", "Meteorológico", subgrupo),
+         tipo = ifelse (disaster_type == "Epidemic", "Epidemia", NA),
+         tipo = ifelse(disaster_type == "Insect infestation", "Infestação de insetos", tipo),
+         tipo = ifelse(disaster_type == "Drought", "Seca", tipo),
+         tipo = ifelse(disaster_type == "Wildfire", "Incêndio", tipo),
+         tipo = ifelse(disaster_type == "Earthquake", "Terremoto", tipo),
+         tipo = ifelse(disaster_type == "Flood", "Inundação", tipo),
+         tipo = ifelse(disaster_type == "Landslide", "Deslizamento", tipo),
+         tipo = ifelse(disaster_type == "Extreme temperature", "Temperatura Extrema", tipo),
+         tipo = ifelse(disaster_type == "Storm", "Tempestade", tipo),
+         subtipo = ifelse(disaster_subtype == "Drought", "Seca", NA),
+         subtipo = ifelse(disaster_subtype == "Bacterial disease", "Doença bacteriana", subtipo),
+         subtipo = ifelse(disaster_subtype == "Riverine flood", "Enchente (rio)", subtipo),
+         subtipo = ifelse(disaster_subtype == "Landslide", "Deslizamento", subtipo),
+         subtipo = ifelse(disaster_subtype == "Forest fire", "Queimada", subtipo),
+         subtipo = ifelse(disaster_subtype == "Flash flood", "Alagamento (inundação rápida)", subtipo),
+         subtipo = ifelse(disaster_subtype == "Heat wave", "Onda de calor", subtipo),
+         subtipo = ifelse(disaster_subtype == "Cold wave", "Onda de frio", subtipo),
+         subtipo = ifelse(disaster_subtype == "Convective storm", "Tempestade convectiva", subtipo),
+         subtipo = ifelse(disaster_subtype == "Ground movement", "Movimento do solo", subtipo),
+          subtipo = ifelse(disaster_subtype == "Viral disease", "Doença viral", subtipo),
+          subtipo = ifelse(disaster_subtype == "Mudslide", "Deslizamento de terra (lama)", subtipo),
+          subtipo = ifelse(disaster_subtype == "Tropical cyclone", "Ciclone tropical", subtipo),
+         subtipo = ifelse(disaster_subtype == "Extra-tropical storm", "Tempestade extra-tropical", subtipo),
+         subtipo = ifelse(disaster_subtype == "Land fire (Brush, Bush, Pasture)", "Incêndio terrestre (mato, arbusto, pasto)", subtipo),
+         location = gsub("Rio De Janeiro province", "RJ", location), #gsub substitui todas as ocorrências - para tradução
+         location = gsub ("Teresopolis districts", "Teresópolis", location),
+         location = gsub ("Petropolis", "Petrópolis", location),
+         location = gsub ("Sao", "São", location),
+         location = gsub ("Guanab", "Guanabara", location),
+         location = gsub ("Guanabaraara", "Guanabara", location),
+         location = gsub ("Rio", "Rio de Janeiro", location),
+         location = gsub ("Rio de Janeiro de Janeiro", "Rio de Janeiro", location),
+         location = gsub ("Caraguatauba", "Caraguatatuba", location),
+         location = gsub ("Ceara", "Ceará", location),
+         location = gsub ("Maranhao", "Maranhão", location),
+         location = gsub ("Paraiba", "Paraíba", location),
+         location = gsub ("Piaui", "Piauí", location),
+         location = gsub ("Rio de Janeiro Grande Do Norte", "Rio Grande do Norte", location),
+         location = gsub ("Northeast", "Região Nordeste", location),
+         location = gsub ("Sertao	Northwestern", "Sertão Nordestino", location),
+         location = gsub ("Legal Amazon Area", "Amazônia Legal", location),
+         location = gsub ("Nord East", "Nordeste", location),
+         location = gsub ("Piaui State", "Piauí", location),
+         location = gsub ("Central and Southern", "Regiões Centro-Oeste e Sul", location),
+         location = gsub ("Bahia provinces", "Bahia", location),
+         location = gsub ("Northwestern", "Noroeste", location),
+         location = gsub ("Sertao", "Sertão", location),
+         location = gsub ("Piauí State", "Piauí", location),
+         location = gsub ("Sergipe provinces", "Sergipe", location),
+         location = gsub ("Pernambuco provinces", "Pernambuco", location),
+         location = gsub("Minas Gerias", "Minas Gerais",location)
+         )
+      
+```
+
+
+Dada a quantidade de registros de inundações (flood) que tem informação de área (em km²) e o fato de serem os eventos que ocorrem com mais frequência, como já visto no relatório anterior, o grupo optou por esmiuçar a análise dos impactos causados pelas inundações e a existência de correlação entre área do desastre e mortes, afetados e perdas.
+
+##3.1) Filtro para os desastres hidrológicos com têm dados sobre área no campo de magnitude do impacto
+```{r}
+hidro <- dados2 %>%
+  filter(disaster_subgroup == "Hydrological") #Há 185 desastres hidrológicos na base (população).
+
+hidro <- hidro %>% 
+  # Calcula log
+  mutate(area_log = log10(dis_mag_value),
+         mortes_log = log10(total_deaths),
+         afetados_log = log10(total_affected),
+         perdas_log = log10(total_damages_adjusted_000_us))
+
+#Filtro para os desastres que possuem dados no campo de magnitude do impacto, totalizando 49 desastres (hidro2). Portanto, a amostra de desastres hidrológicos que tem dados sobre magnitude é de 26,48% do total de desastres hidrológicos de grande porte (185), sendo que todos são inundações.
+hidro2 <- hidro %>% 
+  filter(!is.na(dis_mag_value))
+
+#Filtro para as inundações, independentemente de ter dados sobre área atingida. Há um total de 160 desastres hidrológicos do tipo inundação. É sobre eles que trabalharemos.
+inund <- filter(dados, disaster_type == "Flood")
+```
+
+#4) Estatística descritiva dos desastres hidrológicos (TODOS - hidro)
+```{r}
+tabela1 <- hidro %>%   #Júlio, consideramos a estatística de mortes, perdas e prejuízos para todos os desastres hidrológicos ou somente para a amostra que tem dados de área? Fiz no chunk seguinte com "hidro2" (somente os que tem área).
+  mutate("Pessoas afetadas" = total_affected, "Perdas totais" = total_damages_adjusted_000_us, Mortos = total_deaths) %>% 
+  rstatix::get_summary_stats(total_deaths, total_affected, total_damages_adjusted_000_us, type = "common") %>% 
+  kbl(col.names = c("Variável", "Qtd desastres computados", "min", "max", "mediana", "1-3 quartil", "média", "desvio padrão", "se", "ci")) %>% 
+  #row.names = list("Variável", "Pessoas afetadas", "Perdas totais", "Mortes")) %>% #aqui tentei renomear o nome das linhas, para não ficarem os nomes em inglês. Tentei aqui e com mutate e não deu certo.
+  kable_paper()
+
+#library(xlsx)
+#xlsx::write.xlsx (tabela1, file = "tabela1_est_descritiva_hidrologicos_todos.xlsx")
+  
+```
+
+## 4.1) Estatística descritiva dos desastres hidrológicos
+```{r}
+hidro %>% 
+  rename(`Pessoas afetadas` = total_affected,
+         `Perdas totais` = total_damages_adjusted_000_us,
+         Mortos = total_deaths) %>% 
+  #mutate(`Pessoas afetadas` = total_affected, `Perdas totais` = total_damages_adjusted_000_us, Mortos = total_deaths) %>% #não funcionou
+  rstatix::get_summary_stats(`Pessoas afetadas`, `Mortos`, `Perdas totais`,
+#mortes = total_deaths, afetados = total_affected, perdas = total_damages_adjusted_000_us,
+type = "common") %>% 
+  select(-se,-ci) %>% 
+  #c("min", "max", "median_iqr")) %>% 
+  kbl(
+    col.names = c("Variável", "n", "min", "max", "mediana", "1-3 quartil", "média", "desvio padrão")
+    ) %>%  
+     #row.names = list("Variável", "Pessoas afetadas", "Perdas totais", "Mortes")) %>%
+  kable_paper() %>% 
+kable_classic()
+  
+```
+
+## 4.2) Estatística descritiva dos desastres hidrológicos do tipo INUNDAÇÃO.
+```{r}
+inund %>% 
+  mutate("Pessoas afetadas" = total_affected, "Perdas totais" = total_damages_adjusted_000_us, Mortos = total_deaths) %>% #não funcionou
+  rstatix::get_summary_stats(mortes = total_deaths, afetados = total_affected, perdas = total_damages_adjusted_000_us, type = "common") %>% 
+  kbl(col.names = c("Variável", "n", "min", "max", "mediana", "1-3 quartil", "média", "desvio padrão", "se", "ci")) %>%  
+     # row.names = list("Variável", "Pessoas afetadas", "Perdas totais", "Mortes")) %>%
+  kable_paper()
+```
+
+#5) MORTES
+## 5.1) Histograma de mortes por desastres hidrológicos (frequência absoluta)
+```{r}
+ggplot(hidro, aes(x=total_deaths))+
+  #geom_histogram(col = "red", fill = 'tomato', bins = 50)+  # histograma original, vermelho.
+  geom_histogram(aes(y=..density..), col = "red", fill = 'tomato', bins = 50)+ #esse pode ser usado com o geom_density. Observar que há mudança dos rótulos do eixo y (percentual?!). Necessário ajustar o texto. Não entendi cmo fazer.
+  geom_density(alpha = 0.2)+ 
+  scale_x_continuous(limits = c(0,500), breaks = seq(0,500,50))+
+    labs(x = "mortes por desastres hidrológicos", y = "frequência absoluta")+
+  theme_minimal()
+
+ggsave(path = , filename = "histogr_mortes_hidro_freq_absoluta.png")
+```
+Distribuição da variável mortes não é normal, mas sim exponencial.
+
+## 5.2) Histograma de frequência relativa de mortes por desastres hidrológicos
+```{r}
+ggplot(hidro, aes(x=total_deaths, y = (..count../sum(..count..))*100))+ #..count.. = frequência relativa
+  geom_histogram(col = "red", fill = 'tomato', bins = 100)+
+  labs(x = "mortes por desastres hidrológicos", y = "frequência relativa (%)")+
+  scale_x_continuous (limits = c(0,500), breaks = seq(0,500,50))+
+  theme_minimal()
+
+ggsave("img/histogr_mortes_hidro_freq_relativa.png", width = 13, height = 7, units = "cm")
+```
+## 5.3) Histograma de frequência acumulada de mortes por desastres hidrológicos
+```{r}
+ggplot(hidro, aes(x=total_deaths, y = cumsum(..count..)))+
+  geom_histogram(col = "red", fill = 'tomato')+
+  labs(x = "mortes por desastres hidrológicos", y = "frequência acumulada de mortes")+
+  theme_minimal()
+```
+## 5.4) Histograma de frequência relativa acumulada de mortes por desastres hidrológicos
+```{r}
+ggplot(hidro, aes(x=total_deaths, y = cumsum(..count../sum(..count..))*100 ))+
+  geom_histogram(col = "red", fill = 'tomato')+
+  labs(x = "mortes por desastres hidrológicos", y = "frequência relativa (%) acumulada de mortes")+
+  theme_minimal()
+```
+
+##5.5) Teste de normalidade de MORTES X Área - NÃO RODOU
+
+```{r}
+morteXarea <- hidro2 %>% 
+  dplyr::select(dis_no, total_deaths, dis_mag_value)
+```
+
+## 5.6) Gráfico de dispersão de mortes por desastres hidrológicos X área
+```{r}
+#library(ggpmisc)
+hidro %>% 
+  filter(!is.na(dis_mag_value)) %>% 
+  ggplot(aes(y = total_deaths, x = dis_mag_value))+
+  geom_point(alpha = 0.4)+
+  labs(title = "4B - Mortes x Área afetada (km²)",
+       subtitle = "p-valor: 0,28 (Spearman)\ncoef.corr.: 0,16",
+    x = "Área atingida (km²)",
+    y = "Mortes")+
+  theme_minimal()+
+  scale_y_log10()+
+  scale_x_log10()
+
+ggsave("img/graf_dispersao_mortesXarea_13x8.png", width = 13, height = 8, units = "cm")
+```
+
+## 5.7) Gráfico de dispersão de mortes por desastres hidrológicos X perdas (em US$ corrigidos)
+```{r}
+#library(ggpmisc)
+options (scipen=999)
+hidro %>% 
+  ggplot(aes(y = total_deaths, x = total_damages_adjusted_000_us))+
+  geom_point(alpha = 0.6)+
+  labs(title = "4A - Mortes x Perdas (US$ corrigidos)",
+       subtitle = "p-valor = 0,01037 (Pearson)\ncoef.corr. = 0.318297",
+    x = "Perdas materiais (US$ corrigidos)",
+    y = "Mortes", color = "")+
+  theme_minimal() +
+  scale_y_log10()+
+  scale_x_log10()
+
+ggsave("img/graf_dispersao_mortesXperdas_hidro_13x8.png", width = 13, height = 8, units = "cm")
+
+```
+
+## 5.8) Gráfico de mortes e pessoas afetadas em relação à área afetada por inundação
+```{r}
+hidro2%>% 
+  ggplot(aes(x = dis_mag_value))+
+  geom_point(aes(y = total_deaths, col = "mortas"))+   #obs: gostaria de inverter as cores (mortos em vermelho e afetados em azul)
+  geom_point(aes(y = total_affected, col = "afetadas"))+
+  labs(x = "área atingida por inundação (km²)", y = "pessoas", color = "pessoas")+
+  theme_minimal()+
+  scale_y_log10() +
+  scale_x_log10()
+
+ggsave("img/graf_dispersao_mortes-afetadosXarea.png", width = 13, height = 7, units = "cm")
+```
+
+## 5.9) Gráfico de mortes e pessoas afetadas por inundação conforme as perdas (em US$ corrigidos)
+```{r}
+inund%>% 
+  ggplot(aes(x = total_damages_adjusted_000_us))+
+  geom_point(aes(y = total_deaths, col = "mortas"))+   #obs: gostaria de inverter as cores (mortos em vermelho e afetados em azul)
+  geom_point(aes(y = total_affected, col = "afetadas"))+
+  labs(caption = "p-valor (mortes e perdas): 0,0004312\np-valor (pessoas afetadas e perdas): 0,0000001564",
+    x = "Perdas ocorridas por inundações (em US$ corrigidos)", y = "Pessoas", color = "pessoas")+
+  theme_minimal()+
+  scale_y_log10()+
+  scale_x_log10()
+
+ggsave("img/graf_dispersao_mortes-afetadosXarea_13x7.png", width = 13, height = 7, units = "cm")
+```
+## 5.9) Gráfico dispersão mortes X pessoas afetadas
+```{r}
+#library(ggpmisc)
+hidro %>% 
+  ggplot(aes(y = total_deaths, x = total_affected))+
+  geom_point(alpha = 0.6)+
+  labs(title = "4F - Mortes x Pessoas afetadas\np-valor = 0.04328 (Spearman)",
+    x = "Pessoas afetadas por desastres hidrológicos",
+    y = "Mortes", color = "")+
+  theme_minimal() +
+  scale_y_log10()+
+  scale_x_log10()
+
+ggsave("img/graf_dispersao_mortesXpessoas_afetadas_hidro_13x8.png", width = 13, height = 8, units = "cm")
+```
+
+
+#6) PESSOAS AFETADAS
+
+## 6.1) Histograma de pessoas afetadas por desastres hidrológicos (frequência absoluta)
+```{r}
+options(scipen = 999)
+ggplot(hidro, aes(x=total_affected))+
+  geom_histogram(col = "blue4", fill = 'blue')+
+  labs(x = "pessoas afetadas por desastres hidrológicos", y = "frequência absoluta")+
+  theme_minimal()
+```
+
+## 6.2) Histograma de frequência relativa de pessoas afetadas por desastres hidrológicos
+```{r}
+ggplot(hidro, aes(x=total_affected, y = (..count../sum(..count..))*100))+ #..count.. = frequência relativa
+  geom_histogram(col = "blue4", fill = 'blue', bins = 100)+
+  labs(x = "pessoas afetadas por desastres hidrológicos", y = "frequência relativa (%)")+
+  theme_minimal()
+
+ggsave("img/histogram_pessoas_afetadas_hidro_freq_relativa.png", width = 13, height = 7, units = "cm")
+```
+
+## 6.3) Histograma de frequência acumulada de pessoas afetadas por desastres hidrológicos
+```{r}
+ggplot(hidro, aes(x=total_affected, y = cumsum(..count..)))+
+  geom_histogram(col = "blue4", fill = 'blue')+
+  labs(x = "pessoas afetadas por desastres hidrológicos", y = "frequência acumulada de pessoas afetadas")+
+  theme_minimal()
+```
+
+
+## 6.4) Histograma de frequência relativa acumulada de pessoas afetadas por desastres hidrológicos
+```{r}
+ggplot(hidro, aes(x=total_affected, y = cumsum(..count../sum(..count..))*100 ))+
+  geom_histogram(col = "blue4", fill = 'blue')+
+  labs(x = "pessoas afetadas por desastres hidrológicos", y = "frequência relativa (%) acumulada de pessoas afetadas")+
+  theme_minimal()
+```
+
+
+## 6.5) Gráfico de dispersão de pessoas afetadas X área atingida por grandes desastres hidrológicos
+
+```{r}
+#library(ggpmisc)
+options(scipen = 999)
+hidro2 %>% 
+  ggplot(aes(y = total_affected, x = dis_mag_value))+
+  geom_point(alpha = 0.4)+
+  labs(title = "4D - Pessoas afetadas x Área afetada (km²)",
+       subtitle = "p-valor = 0,09 (Spearman)\ncoef.corr = 0,25",
+    x = "Área atingida por desastres hidrológicos (km²)",
+    y = "Pessoas afetadas")+
+  theme_minimal()+
+  scale_y_log10() +
+  scale_x_log10()
+
+ggsave("img/graf_dispersao_pessoas_afetadasXarea_hidro_13x8.png", width = 13, height = 8, units = "cm")
+```
+
+## 6.6) PESSOAS AFETADAS E PERDAS POR INUNDAÇÕES
+```{r}
+hidro %>% 
+  ggplot(aes(y = total_affected, x = total_damages_adjusted_000_us))+
+  geom_point(alpha = 0.4)+
+  labs(title = "4C - Pessoas afetadas x Perdas (US$ corrigidos)\np-valor = 0,0000001564",
+    x = "Perdas materiais (US$ corrigidos)", y = "Pessoas afetadas")+
+  #scale_x_continuous(limits = c(0,1500000))+
+  theme_minimal()+
+  scale_y_log10()+
+  scale_x_log10()
+
+ggsave("img/graf_dispersao_pessoas_afetadasXperdas_hidro_13x8.png", width = 13, height = 7, units = "cm")
+```
+
+
+
+# 7) PERDAS EM US$ (TOTAL DAMAGES)
+
+## 7.1) Histograma de perdas econômicas por desastres hidrológicos (frequência absoluta). Obs: não consegui suavizar e criar outra linha como fiz no 5.1 (histograma de mortes)
+```{r}
+options(scipen = 999)
+ggplot(inund, aes(x=total_damages_adjusted_000_us))+
+  geom_histogram(col = "green", fill = 'green', bins = 100)+
+  scale_x_continuous(limits = c(0,1300000), breaks = seq(0,1300000,100000))+
+  scale_y_continuous(limits = c(0,7))+
+  labs(x = "perdas (US$) por inundações de grande porte", y = "frequência absoluta de desastres")+
+  guides(x =  guide_axis(angle = 90))+
+  theme_minimal()
+```
+
+
+
+## 7.2) Gráfico de dispersão de perdas (em US$ corrigidos) por área (em km²) atingida por desastres hidrológicos
+
+```{r}
+#library(ggpmisc)
+hidro2 %>% 
+  #filter(!is.na(dis_mag_value)) %>% 
+  ggplot(aes(y = total_damages_adjusted_000_us, x = dis_mag_value))+
+  geom_point(alpha = 0.4)+
+  labs(title = "4E - Área afetada (km²) x Perdas materiais (US$ corrigidos)",
+       subtitle = "p-valor = 0,008\ncoef.corr. = 0,65",
+    x = "Área (km²)",
+    y = "Perdas (em US$ corrigido)")+
+  scale_y_log10() +
+  scale_x_log10() +
+  theme_minimal() +
+  theme(plot.title.position = "plot")  # Alinha título totalmente à esquerda
+
+ggsave("img/graf_dispersao_perdasXarea_13x7.png", width = 13, height = 8, units = "cm")
+```
+
+#8) TESTE DE NORMALIDADE - SHAPIRO WILK
+
+## 8.1) Teste de normalidade de mortes por inundação
+```{r}
+shapiro.test(hidro$total_deaths) #não normalidade
+```
+## 8.2) Teste de normalidade de pessoas afetadas por inundação
+```{r}
+shapiro.test(hidro$total_affected) #não normalidade
+```
+## 8.3) Teste de normalidade de perdas (US$ corrigidos) em inundações
+```{r}
+shapiro.test(hidro$total_damages_adjusted_000_us)
+```
+## 8.4) Teste de normalidade de área afetada por inundações
+```{r}
+shapiro.test(hidro$dis_mag_value)
+```
+
+
+# 9) WILCOX TEST - para comparação de dois grupos que não são paramétricos (se diferem em relação a alguma variável)
+
+## 9.1) WILCOX TEST PARA MORTES E ÁREA DO DESASTRE DO TIPO INUNDAÇÃO
+```{r}
+wilcox.test (morteXarea$dis_mag_value, morteXarea$total_deaths, paired = TRUE)  
+```
+
+## 9.2) WILCOX TEST PARA MORTES E PERDAS POR INUNDAÇÕES
+```{r}
+ wilcox.test (inund$total_deaths, inund$total_damages_adjusted_000_us, paired = TRUE)
+```
+
+
+## 9.3) WILCOX TEST PARA PESSOAS AFETADAS E ÁREA DO DESASTRE DO TIPO INUNDAÇÃO
+```{r}
+ wilcox.test (hidro2$dis_mag_value, hidro2$total_affected, paired = TRUE)
+```
+
+## 9.4) WILCOX TEST PARA PESSOAS AFETADAS E PERDAS POR INUNDAÇÕES
+```{r}
+wilcox.test (inund$total_affected, inund$total_damages_adjusted_000_us, paired = TRUE)
+```
+
+
+## 9.5) WILCOX TEST PARA PERDAS E ÁREA DO DESASTRE DO TIPO INUNDAÇÃO
+```{r}
+ wilcox.test (hidro2$dis_mag_value, hidro2$total_damages_adjusted_000_us, paired = TRUE)
+```
+
+# 10) CORRELAÇÃO DE SPEARMAN  
+
+## 10.1) Correlação de Spearman para as variáveis mortes e área atingida por inundações
+```{r}
+cor.test(x = hidro2$total_deaths, y = hidro2$dis_mag_value,
+         alternative = "two.sided",
+         method = "spearman",
+         conf.level = 0.95)
+```
+
+## 10.2) Correlação de Spearman para as variáveis mortes e perdas (US$) por inundações
+```{r}
+cor.test(x = inund$total_deaths, y = inund$total_damages_adjusted_000_us,
+         alternative = "two.sided", method = "spearman", conf.level = 0.95)
+```
+
+## 10.3) Correlação de Spearman para as variáveis pessoas afetadas e área atingida por inundações
+```{r}
+cor.test(x = hidro2$total_affected, y = hidro2$dis_mag_value, alternative = "two.sided", method = "spearman", conf.level = 0.95)
+```
+
+## 10.4) Correlação de Spearman para as variáveis pessoas afetadas e perdas (US$) por inundação
+```{r}
+cor.test(x = inund$total_affected, y = inund$total_damages_adjusted_000_us, alternative = "two.sided", method = "spearman", exact = NULL, conf.level = 0.95)
+```
+
+## 10.5) Correlação de Spearman para as perdas (US$) e área atingida por inundação
+```{r}
+cor.test(x = hidro2$dis_mag_value, y = hidro2$total_damages_adjusted_000_us, alternative = "two.sided", method = "spearman", exact = NULL, conf.level = 0.95)
+```
+
+## 10.6) Correlação de Spearman para mortes e pessoas afetadas por desastres hidrológicos
+```{r}
+cor.test(x = hidro$total_deaths, y = hidro$total_affected, alternative = "two.sided", method = "spearman", exact = NULL, conf.level = 0.95)
+```
+
+
+## 10.7) Spearman área x perdas
+```{r}
+cor.test(x = hidro2$dis_mag_value, y = hidro2$total_damages_adjusted_000_us,
+         alternative = "two.sided", method = "spearman", exact = NULL,
+         conf.level = 0.95)
+```
+
+
+
+
+#11) MATRIZ DE CORRELAÇÃO DE PEARSON
+```{r}
+# a) Montagem do Coeficiente de correlação, primeiro aplicando filtro para manter apenas as variáveis de interesse.
+
+library(Hmisc)
+hidro3 <- hidro %>% 
+  
+  # Calcula log
+  mutate(area_log = log10(dis_mag_value),
+         mortes_log = log10(total_deaths),
+         afetados_log = log10(total_affected),
+         perdas_log = log10(total_damages_adjusted_000_us)) %>% 
+  
+  #select(total_deaths, total_affected, total_damages_adjusted_000_us, dis_mag_value) %>% 
+  select (`área (km²)` = dis_mag_value,
+          `mortes` = mortes_log,
+          `pop afetada` = afetados_log,
+          `perdas (US$)` = perdas_log)
+
+matcorr <- rcorr (as.matrix(hidro3), type = c("pearson"))
+
+```
+
+```{r}
+# b) Matriz de Coeficiente de Correlação de Spearman
+library(ggcorrplot)
+
+ggcorrplot::ggcorrplot(matcorr$r,
+                       type = "upper",
+                       show.legend = TRUE,
+                       title = "Figura 5 - Coef. Corr. de Pearson",
+                       lab = TRUE,
+                       lab_size = 3,
+                       tl.cex = 10,
+                       digits = 2)
+
+ggsave("img/matriz_correlacao_Pearson.png", width = 10, height = 10, units = "cm")
+```
+
+
+
+
+#11B) MATRIZ DE CORRELAÇÃO DE SPEARMAN
+```{r}
+# a) Montagem do Coeficiente de correlação, primeiro aplicando filtro para manter apenas as variáveis de interesse.
+
+library(Hmisc)
+hidro3 <- hidro2 %>% 
+  
+  # Calcula log
+  mutate(area_log = log10(dis_mag_value),
+         mortes_log = log10(total_deaths),
+         afetados_log = log10(total_affected),
+         perdas_log = log10(total_damages_adjusted_000_us)) %>% 
+  
+  #select(total_deaths, total_affected, total_damages_adjusted_000_us, dis_mag_value) %>% 
+  select (`área (km²)` = dis_mag_value,
+          `mortes` = mortes_log,
+          `pop afetada` = afetados_log,
+          `perdas (US$)` = perdas_log)
+
+matcorr <- rcorr (as.matrix(hidro3), type = c("spearman"))
+
+```
+
+```{r}
+# b) Matriz de Coeficiente de Correlação de Spearman
+library(ggcorrplot)
+
+ggcorrplot::ggcorrplot(matcorr$r,
+                       type = "upper",
+                       show.legend = TRUE,
+                       title = "Figura 5 - Coef. Corr. de Spearman",
+                       lab = TRUE,
+                       lab_size = 3,
+                       tl.cex = 10,
+                       digits = 2)
+
+ggsave("img/matriz_correlacao_Spearman.png", width = 10, height = 10, units = "cm")
+```
+
+
+
+
+
+# 12) NORMALIZAÇÃO DAS VARIÁVEIS
+Aplicação de log10 nas variáveis para verificar a possibilidade de trabalhar com testes paramétricos, caso confirmada a normalidade do log da variável pelo teste de Shapiro-Wilk.
+Apresenta-se a seguir os testes de Pearson para os pares de variáveis transformadas que apresentam distribuição normal para identificar correlação entre variáveis de uma mesma população.
+
+## 12.1) MORTES
+```{r}
+dados2 <- dados2 %>% 
+  mutate(mortes_log = log10(total_deaths)) 
+  
+dadostemp <- dados2 %>% 
+  filter (!is.na(mortes_log))
+
+  shapiro.test(dadostemp$mortes_log) #normalidade do log10 de mortes
+#select (#colocar a ordem das nome das variáveis, everything()) #everything para continuar todo o resto na ordem que estava)
+```
+## 12.2) AFETADOS
+```{r}
+dados2 <- dados2 %>% 
+  mutate(afetados_log = log10(total_affected)) 
+  
+dadostemp <- dados2 %>% 
+  filter (!is.na(total_affected))
+
+  shapiro.test(dadostemp$afetados_log) #normalidade do log10 de afetados
+```
+
+## 12.2.1) Pearson entre mortes_log e pessoas afetadas (afetados_log)
+```{r}
+cor.test(x = hidro$mortes_log, y = hidro$afetados_log , alternative = "two.sided", method = "pearson", exact = NULL, conf.level = 0.95)
+
+# Não há correlação entre log de mortes e log de pessoas afetadas.
+```
+
+## 12.3) PREJUÍZOS
+```{r}
+dados2 <- dados2 %>% 
+  mutate(perdas_log = log10(total_damages_adjusted_000_us)) 
+  
+dadostemp <- dados2 %>% 
+  filter (!is.na(total_damages_adjusted_000_us))
+
+  shapiro.test(dadostemp$perdas_log) #normalidade do log10 de prejuízos
+```
+
+## 12.3.1) Pearson entre perdas_log e mortes_log
+```{r}
+cor.test(x = hidro$mortes_log, y = hidro$perdas_log , alternative = "two.sided", method = "pearson", exact = NULL, conf.level = 0.95)
+
+# Não há correlação entre log de perdas e log de mortes.
+```
+
+## 12.3.2) Pearson entre perdas_log e afetados_log
+```{r}
+cor.test(x = hidro$perdas_log, y = hidro$afetados_log , alternative = "two.sided", method = "pearson", exact = NULL, conf.level = 0.95)
+
+# Não há correlação entre o log de perdas e o log de pessoas afetadas.
+```
+
+
+
+## 12.4) ÁREA
+```{r}
+dados2 <- dados2 %>% 
+  mutate(area_log = log10(dis_mag_value)) 
+  
+dadostemp <- dados2 %>% 
+  filter (!is.na(dis_mag_value))
+
+  shapiro.test(dadostemp$area_log) # rejeição da hipótese de normalidade de log da área atingida por desastres naturais.
+```
+
+## 12.5) GRÁFICOS DE DISPERSÃO DE LOG (PEARSON - NORMALIDADE DOS DADOS)
+
+## 12.5.1) Gráfico de dispersão de log de mortes por desastres hidrológicos X log_perdas (em US$ corrigidos)
+```{r}
+#library(ggpmisc)
+hidro %>% 
+  ggplot(aes(y = total_deaths, x = total_damages_adjusted_000_us))+
+  geom_point(alpha = 0.4)+
+  labs(title = "4A - Mortes x Perdas (US$ corrigidos)",
+       subtitle = "p-valor = 0.016 (Pearson)\ncoef.corr = 0.32",
+    x = "Perdas materiais (US$ corrigidos)",
+    y = "Mortes", color = "")+
+  theme_minimal() +
+  scale_y_log10() +
+  scale_x_log10()
+
+ggsave("img/graf_dispersao_mortesXperdas_hidro_13x8.png", width = 13, height = 8, units = "cm")
+```
+
+
+## 12.5.2) Gráfico de dispersão de log de pessoas afetadas por desastres hidrológicos X log_perdas (em US$ corrigidos)
+```{r}
+#library(ggpmisc)
+hidro %>% 
+  ggplot(aes(y = total_affected, x = total_damages_adjusted_000_us))+
+  geom_point(alpha = 0.4)+
+  labs(title = "4C - Pessoas afetadas x Perdas (US$ corrigidos)",
+       subtitle = "p-valor: 0.0007 (Pearson)\ncoef.corr.: 0.42",
+    x = "Perdas materiais (US$ corrigidos)",
+    y = "Pessoas afetadas", color = "")+
+  scale_y_log10() +
+  scale_x_log10() +
+  theme_minimal()
+
+ggsave("img/graf_dispersao_pessoas_afetadasXperdas_hidro_13x8.png", width = 13, height = 8, units = "cm")
+```
+
+## 12.5.3) Gráfico de dispersão de log de pessoas afetadas por desastres hidrológicos X log de mortes
+```{r}
+#library(ggpmisc)
+hidro %>% 
+  ggplot(aes(y = total_affected, x = total_deaths))+
+  geom_point(alpha = 0.4)+
+  labs(title = "4F - Pessoas afetadas x Mortes",
+       subtitle = "p-valor = 0.000006 (Pearson)\ncoef.corr = 0.37",
+    x = "Perdas materiais (US$ corrigidos)",
+    y = "Mortes", color = "")+
+  theme_minimal() +
+  scale_y_log10() +
+  scale_x_log10()
+
+ggsave("img/graf_dispersao_mortesXperdas_hidro_13x8.png", width = 13, height = 8, units = "cm")
+```
+
+
+# 13) TABELAS ESTATÍSTICAS RESUMO
+
+
+
+
+### 13.0) Gráfico geral
+
+```{r}
+dados3 %>% 
+  select(subgrupo, tipo, dis_no, total_deaths, total_affected,
+         total_damages_adjusted_000_us) %>% 
+  group_by(subgrupo,tipo) %>% 
+  summarise(n = n(),
+            total_deaths = sum(total_deaths, na.rm = T),
+            total_affected = sum(total_affected, na.rm = T),
+            total_damages_adjusted_000_us =
+              sum(total_damages_adjusted_000_us, na.rm = T)) %>% 
+  arrange(n()) %>% 
+  janitor::adorn_totals("row") %>% 
+  kbl(col.names = c("Subgrupo", "Tipo","Quant", "Mortes", "Pessoas afetadas",
+                    "Prejuízos"),
+      format.args = list(big.mark = ".", decimal.mark = ",")) %>% 
+  kable_classic() %>% 
+  kable_paper("hover", full_width = T) %>% 
+  column_spec(1, bold = T, border_right = F)
+```
+
+
+
+
+### 13.1) Mortes
+
+```{r}
+dados3 %>% 
+  select(subgrupo, tipo, subtipo, total_deaths,
+         total_affected, total_damages_adjusted_000_us) %>% 
+  group_by(subgrupo, tipo) %>% 
+  summarise(freq = sum(total_deaths, na.rm = T),
+            freq_rel = round(100 * sum(total_deaths, na.rm = T) /
+                               sum(dados3$total_deaths, na.rm = T)),
+            média = round(mean(total_deaths, na.rm = T)),
+            desvpad = round(sd(total_deaths, na.rm = T)),
+            mediana = round(median(total_deaths, na.rm = T)),
+            iqr = round(IQR(total_deaths, na.rm = T)),
+            máx = max(total_deaths, na.rm = T)) %>% 
+  janitor::adorn_totals("row") %>% 
+  filter(freq > 0) %>% 
+  kable(align = "llrrrrrrr", 
+               col.names = c("Subgrupo", "Tipo", "Freq.", "Freq. (%)", "Média",
+                             "Desvpad", "Mediana", "IQR", "Máx."),
+               #table.attr = "class=\"striped\"",
+               format = "html") %>% 
+  kable_classic()%>% 
+  kable_paper("hover", full_width = T) %>% 
+  column_spec(1, bold = T, border_right = F) %>% 
+  column_spec(2, bold = T, border_right = F)
+```
+
+
+
+
+### 13.2) Pessoas afetadas
+
+```{r}
+dados3 %>% 
+  select(subgrupo, tipo, subtipo, total_affected) %>% 
+  group_by(subgrupo, tipo) %>% 
+  summarise(freq = sum(total_affected, na.rm = T),
+            freq_rel = round(100 * sum(total_affected, na.rm = T) /
+                               sum(dados3$total_affected, na.rm = T)),
+            média = round(mean(total_affected, na.rm = T)),
+            desvpad = round(sd(total_affected, na.rm = T)),
+            mediana = round(median(total_affected, na.rm = T)),
+            iqr = round(IQR(total_affected, na.rm = T)),
+            máx = max(total_affected, na.rm = T)) %>% 
+  filter(freq > 0) %>% 
+  kable(align = "llrrrrrrr", 
+        col.names = c("Subgrupo", "Tipo", "N", "N (%)", "Média",
+                      "Desvpad", "Mediana", "IQR", "Máx."),
+        #table.attr = "class=\"striped\"",
+        format = "html") %>% 
+  kable_classic()%>% 
+  kable_paper("hover", full_width = T) %>% 
+  column_spec(1, bold = T, border_right = F) %>% 
+  column_spec(2, bold = T, border_right = F)
+```
+
+
+
+### 13.3) Prejuízo
+```{r}
+dados3 %>% 
+  select(subgrupo, tipo, subtipo, total_damages_adjusted_000_us) %>% 
+  group_by(subgrupo, tipo) %>% 
+  summarise(freq = sum(total_damages_adjusted_000_us, na.rm = T),
+            freq_rel = round(100 * sum(total_damages_adjusted_000_us, na.rm = T) /
+                               sum(dados3$total_damages_adjusted_000_us, na.rm = T)),
+            média = round(mean(total_damages_adjusted_000_us, na.rm = T)),
+            desvpad = round(sd(total_damages_adjusted_000_us, na.rm = T)),
+            mediana = round(median(total_damages_adjusted_000_us, na.rm = T)),
+            iqr = round(IQR(total_damages_adjusted_000_us, na.rm = T)),
+            máx = max(total_damages_adjusted_000_us, na.rm = T)) %>% 
+  filter(freq > 0) %>% 
+  kable(align = "llrrrrrrr", 
+               col.names = c("Subgrupo", "Tipo", "N", "N (%)", "Média",
+                             "Desvpad", "Mediana", "IQR", "Máx."),
+               #table.attr = "class=\"striped\"",
+               format = "html") %>% 
+   kable_classic()%>% 
+  kable_paper("hover", full_width = T) %>% 
+  column_spec(1, bold = T, border_right = F) %>% 
+  column_spec(2, bold = T, border_right = F)
+```
+
+## 13.4) Contabilização de eventos hidrológicos por subtipo
+```{r}
+dados3 %>% 
+  filter(subgrupo == "Hidrológico") %>% 
+  select(tipo, subtipo, dis_no) %>% 
+  group_by(tipo, subtipo) %>% 
+  summarise(n()) %>% 
+  arrange(n()) %>% 
+  kbl(col.names = c("Tipo", "Subtipo","Quant")) %>% 
+  kable_classic() %>% 
+  kable_paper("hover", full_width = T) %>% 
+  column_spec(1, bold = T, border_right = F) 
+```
+
+
+
+```{r, eval = FALSE, echo = FALSE}
+dados3 %>% 
+  select(subgrupo, tipo, subtipo) %>% 
+  group_by(subgrupo, tipo) %>% 
+  summarise(freq = sum(total_affected, na.rm = T),
+            freq_rel = round(100 * sum(total_affected, na.rm = T) /
+                               sum(dados3$total_affected, na.rm = T)),
+            média = round(mean(total_affected, na.rm = T)),
+            desvpad = round(sd(total_affected, na.rm = T)),
+            mediana = round(median(total_affected, na.rm = T)),
+            iqr = round(IQR(total_affected, na.rm = T)),
+            máx = max(total_affected, na.rm = T)) %>% 
+  filter(freq > 0) %>% 
+  kable(align = "llrrrrrrr", 
+        #col.names = c("Subgrupo", "Tipo", "N", "N (%)", "Média",
+            #          "Desvpad", "Mediana", "IQR", "Máx."),
+        #table.attr = "class=\"striped\"",
+        format = "html") %>% 
+  kable_classic()%>% 
+  kable_paper("hover", full_width = T) %>% 
+  column_spec(1, bold = T, border_right = F) %>% 
+  column_spec(2, bold = T, border_right = F)
+```
+
+
+
+# ANOTAÇÕES REUNIÃO COM O GRUPO DE 21/06/2022
+1 - Teste de normalidade - Shapiro wilk. Se normal, testar homogeneidade de variâncias (Statix - levene_test).
+Se não normal, aplicar um log10 via mutate e testar normalidade novamente.
+2
+
+
+
+# ANOTAÇÕES DA REUNIÃO COM O GRUPO DE 13/06/2022
+INFERÊNCIA - COMPARAÇÃO DE GRUPOS
+
+df <- df %>%  filter (grupo == "" | Grupo == "")
+shapiro.test(de_loc$idade) %>%  tidy() paged_tabel() - idade em função do grupo (informa o dataframe) 
+  
+  No caso de não normalidade - wilcox.test (Idade ~ Grupo, data = df$loc) %>%  tidy %>%  paged_table()
+se der menos de 5%, rejeita a normalidade.
+
+Quando define o tamanho da amostra, define o intervalo de confiança. p_value (se p-value der menor do que os 5%, rejeita a hipótese nula, ou seja, a normalidade).
+
+Distribuição de não-normalidade- T- Student para não paramétrico (diferença de médias - Wilcox)
+Qualquer diferença que olhe entre eles não é diferente entre eles para afirmar que as diferenças são ao acaso. Diferenças não significativas para mostrar que a diferença ocorre entre os grupos.O valor mais próximo de 1 é que não tem diferença . Hipótese nula é de que os grupos não tem diferença. Se cai para menos de 0,05, rejeita a hipótese nula.
+
+MEDIÇÃO ENTRE GRUPOS POR CRITÉRIO SOCIOECONÔMICOS, PELO CRITÉRIO BRASIL (INFERIR PODER ECONÔMICO SEM PRECISAR PERGUNTAR A RENDA)
+Quantidade de pontos X grupo. Uma maneira de mostrar diferença significativa com linha na horizontal (***) - usar geom_signif(comparisons = list (c(grupoa, grupob)), vjust(.......))
+Shapiro wilk - se p_value > 5%, afirma a hipótese de normalidade.
+
+levene_test - homogeneidade de variâncias > aplica-se Anova (para 3 ou mais grupos). Anova não fala em quais grupos fala que há diferença. Mostra valor baixo.
+Diferença significante - PostHocTest - faz comparativo 2 a 2 e vê qual a diferença. Apresenta o p_value (se acima de 5%, não é significante)
+
+Qui quadrado (chisq) - MEDE INDEPENDÊNCIA ENTRE VARIÁVEIS. Se acima de 5%, independentes.
+
+No nosso caso, teremos que fazer CORRELAÇÃO. Cálculo de coeficiente de correlação.Pode fazer um gráfico de dispersão (pontos) e se eles tem correlação, eles devem ter um gráfico bem comportado (quando uma cresce, outra também cresce). O coeficiente nos mostra que tem correlaçao (positiva, inversa).
+- mortes x perdas
+
+
+_________________________________________________________________________
+#TESTES QUE NÃO DERAM CERTO (DAQUI EM DIANTE)
+## 1) Salvando o summary de "dados" como um novo objeto, para já ficar como tabela de estatística descritiva - salvou como tabela (vide abaixo)
+```{r, eval = FALSE, echo = FALSE}
+resumodados <- dados %>% 
+  select(`total_deaths`,`no_injured`,`no_homeless`,`total_affected`, `total_damages_adjusted_000_us`) %>% 
+  summary() %>% 
+  knitr::kable(digits =1, align = "lccccc", 
+               caption = "Medidas Resumo de Impacto de Desastres", 
+               col.names = c("Mortos", "Feridos", "Desabrigados", "Afetados", "Perdas"),
+                table.attr = "class=\"striped\"",
+                format = "html")
+
+knitr::kable(resumodados)
+
+```
+
+## 2) Filtro para seleção das variáveis que serão trabalhadas e construção de matriz de correlação - não funcionou para matriz de correlação por conta dos campos preenchidos como NA
+```{r, EVAL = FALSE, echo = FALSE}
+dados1 <- dados %>% 
+  select(`total_deaths`,`no_injured`,`no_homeless`,`total_affected`, `total_damages_adjusted_000_us`)   #, na.rm = TRUE) %>% 
+  
+  #filter(is.na = FALSE) #quando apliquei esse filtro, não sobrou nenhum resultado... ou seja, em pelo menos uma coluna haverá campo sem preenchimento (campos preenchidos com NA).
+
+```
+
+
+Determinando a matrix de correlação e truncando os valores - no caso, deu-se o nome de "cor.data"
+````{r, EVAL = FALSE, echo = FALSE}
+
+#cor.impact <- round(cor(dados1),1)
+
+#cor.data <- round(cor(dados.ok),1)
+
+```
+
+
+## 3) Plotando e salvando os dados (matriz de correlação) - não apareceu qualquer resultado.      
+```{r, EVAL = FALSE, echo = FALSE}
+#ggcorrplot(cor.impact, #Definindo os dados 
+ #          hc.order = FALSE, #Organiza os dados usando agrupamento 
+  #         type = "lower", #Mostra apenas a diagonal inferior da matriz
+   #        legend.title = "Coeficiente de \n Correlação", #Título da legenda
+  #         lab = TRUE, #Adiciona o coeficiente de correlação no gráfico
+   #        lab_size = 3,#Definindo o tamanho dos rótulos 
+  #         method="circle", #Definindo o tipo de pontos 
+  #         colors = c("firebrick", "white", "dodgerblue4"), #Definindo as cores 
+   #        title="Correlação entre Variáveis", #Definindo o título principal
+  #         ggtheme=theme_bw)
+```
+
+________________________________________________________________
+
+# GRÁFICOS ANTERIORMENTE FEITOS PELO JÚLIO - HISTOGRAMA PREENCHIDO CONFORME O SUBGRUPO DE DESASTRE (PARA REFERÊNCIA)
+```{r, EVAL = FALSE, echo = FALSE}
+dados2 %>% 
+  ggplot(aes(start_month, fill = disaster_subgroup)) +
+  geom_histogram()
+```
+```{r}
+dados2 %>% 
+  count(disaster_subgroup, disaster_type) %>% 
+  ggplot(aes(x = disaster_subgroup, y = n, fill = disaster_type)) +
+  geom_col()
+```
+

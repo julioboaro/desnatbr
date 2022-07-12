@@ -1,0 +1,469 @@
+---
+title: "Análise descritiva"
+author: "Mariana, Newton, Lucas, Maria Lígia, Júlio"
+date: '2022-05-24'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(janitor)
+library(readODS)
+library(stringi)  # stri_trans_general()
+library(stringr)  # str_to_title()
+library(rmarkdown)  # paged_table()
+library(kableExtra)  # column_spec()
+
+options(scipen = 999)
+```
+
+## Importação
+
+Esta é uma área de texto para apresentar as análises:
+
+```{r}
+dados <- readxl::read_xlsx("data/emdat_public_2022_05_02_query_uid-MrgSmc.xlsx",
+                           skip = 6) %>% 
+  clean_names()
+```
+
+## Tradução de classificações
+
+```{r}
+dados <- dados %>%
+  mutate(
+    subgrupo = case_when(
+      disaster_subgroup == "Biological" ~ "Biológico",
+      disaster_subgroup == "Climatological" ~ "Climatológico",
+      disaster_subgroup == "Geophysical" ~ "Geofísico",
+      disaster_subgroup == "Hydrological" ~ "Hidrológico",
+      disaster_subgroup == "Meteorological" ~ "Meteorológico"),
+    tipo = case_when(
+      disaster_type == "Epidemic" ~ "Epidemia",
+      disaster_type == "Insect infestation" ~ "Infestação de insetos",
+      disaster_type == "Drought" ~ "Seca",
+      disaster_type == "Wildfire" ~ "Incêndio",
+      disaster_type == "Earthquake" ~ "Terremoto",
+      disaster_type == "Flood" ~ "Inundação",
+      disaster_type == "Landslide" ~ "Deslizamento",
+      disaster_type == "Extreme temperature" ~ "Temperatura Extrema",
+      disaster_type == "Storm" ~ "Tempestade"),
+    subtipo = case_when(
+      disaster_subtype == "Drought" ~ "Seca",
+      disaster_subtype == "Bacterial disease" ~ "Doença bacteriana",
+      disaster_subtype == "Riverine flood" ~ "Enchente (rio)",
+      disaster_subtype == "Landslide" ~ "Deslizamento",
+      disaster_subtype == "Forest fire" ~ "Queimada",
+      disaster_subtype == "Flash flood" ~ "Alagamento (inundação rápida)",
+      disaster_subtype == "Heat wave" ~ "Onda de calor",
+      disaster_subtype == "Cold wave" ~ "Onda de frio",
+      disaster_subtype == "Convective storm" ~ "Tempestade convectiva",
+      disaster_subtype == "Ground movement" ~ "Movimento do solo",
+      disaster_subtype == "Viral disease" ~ "Doença viral",
+      disaster_subtype == "Mudslide" ~ "Deslizamento de terra (lama)",
+      disaster_subtype == "Tropical cyclone" ~ "Ciclone tropical",
+      disaster_subtype == "Extra-tropical storm" ~
+        "Tempestade extra-tropical",
+      disaster_subtype == "Land fire (Brush, Bush, Pasture)" ~
+        "Incêndio terrestre (mato, arbusto, pasto)"))
+```
+
+## Variáveis
+
+```{r}
+names(dados)
+```
+
+## Glimpse para conferir se tipos das variáveis carregaram como esperado
+
+```{r}
+glimpse(dados)
+```
+
+## Frequência por grupo e subgrupo de desastre
+
+```{r}
+dados %>% 
+  count(disaster_group, disaster_subgroup) %>% 
+  paged_table()
+```
+
+
+## Frequência por Grupos, subgrupos, tipos, subtipos
+
+```{r}
+dados %>% 
+  filter(disaster_group == "Natural") %>% 
+  count(disaster_subgroup, disaster_type,
+        #disaster_subtype, disaster_subsubtype,
+        sort = T) %>% 
+  paged_table()
+```
+
+## Frequência por Grupos, subgrupos, tipos, subtipos
+
+```{r}
+dados %>% 
+  filter(disaster_group == "Technological") %>% 
+  count(disaster_subgroup, disaster_type, disaster_subtype, sort = T) %>% 
+  paged_table()
+```
+
+## Filtro com foco no nosso objetivo
+
+```{r}
+dados <- dados %>% 
+  filter(disaster_group == "Natural")
+```
+
+
+## Ajuste nos dados
+
+```{r}
+dados <- dados %>% 
+  # 3 eventos recentes estão sem valor ajustado
+  mutate(total_damages_adjusted_000_us = ifelse(is.na(total_damages_adjusted_000_us),
+                                                total_damages_000_us,
+                                                total_damages_adjusted_000_us))
+```
+
+
+
+# Percentual de cada subgrupo no total de desastres
+
+```{r}
+dados %>% 
+  count(disaster_subgroup) %>% 
+  mutate(pct = round(100 * n / 256, 1)) %>% 
+  paged_table()
+```
+
+# Percentual de cada subgrupo no total de mortes
+
+```{r}
+dados %>% 
+  group_by(disaster_subgroup) %>% 
+  summarise(mortes = sum(total_deaths, na.rm = T)) %>% 
+  mutate(pct = round(100 * mortes / sum(dados$total_deaths, na.rm = T), 1)) %>% 
+  paged_table()
+```
+
+
+
+
+## Evolução no tempo
+
+
+### Quantidade de desastres no tempo
+
+```{r}
+dados %>% 
+  mutate(year = as.Date(paste(year, 1, 1, sep = "-"))) %>% 
+  count(year) %>% 
+  ggplot(aes(x = year, y = n)) +
+  geom_point() +
+  #geom_smooth(method = "lm", formula = "y ~ x") +
+  geom_line() +
+  labs(title = "1A - Ocorrências de grandes desastres naturais",
+       subtitle = "Total por ano no Brasil",
+       y = "Quantidade de desastres", x = "Ano") +
+  scale_y_continuous(expand = c(0, 0),
+                     limits = c(0, NA),
+                     breaks = seq(0, 12, by = 2)) +
+  scale_x_date(date_labels = (date_format = "%Y"),
+               breaks = seq(as.Date("1950-01-01"), as.Date("2020-01-01"),
+                            "10 years")) +
+  theme_minimal()
+
+ggsave("img/relatorio_g01.png", width = 13, height = 7, units = "cm")
+```
+
+
+### Mortes no tempo
+
+```{r}
+dados %>% 
+  mutate(year = as.Date(paste(year, 1, 1, sep = "-"))) %>% 
+  # group_by(year) %>% 
+  # summarise(total_deaths = sum(total_deaths, na.rm = T)) %>% 
+  ggplot(aes(x = year, y = total_deaths)) +
+  geom_point(alpha = 0.3) +
+  #geom_smooth(method = "lm", formula = "y ~ x") +
+  labs(title = "1B - Mortes por grandes desastres naturais",
+       #subtitle = "Total por ano no Brasil",
+       y = "Quantidade de mortes", x = "Ano") +
+  #theme_classic()
+  scale_x_date(date_labels = (date_format = "%Y"),
+               breaks = seq(as.Date("1950-01-01"), as.Date("2020-01-01"),
+                            "10 years")) +
+  scale_y_log10() +
+  theme_minimal()
+
+ggsave("img/relatorio_g02.png", width = 13, height = 7, units = "cm")
+```
+
+
+
+
+### Mortes no tempo (alternativo com geom_line)
+
+```{r}
+dados %>% 
+  mutate(year = as.Date(paste(year, 1, 1, sep = "-"))) %>% 
+  filter(!is.na(total_deaths)) %>%  # Remove NAs para geom_line ficar contínuo
+  # group_by(year) %>% 
+  # summarise(total_deaths = sum(total_deaths, na.rm = T)) %>% 
+  ggplot(aes(x = year, y = total_deaths)) +
+  geom_line(size = 0.1) +
+  geom_point(alpha = 0.3, size = 0.5) +
+  #geom_smooth(method = "lm", formula = "y ~ x") +
+  labs(title = "1B - Mortes por grandes desastres naturais",
+       #subtitle = "Total por ano no Brasil",
+       y = "Quantidade de mortes", x = "Ano") +
+  #theme_classic()
+  scale_x_date(date_labels = (date_format = "%Y"),
+               breaks = seq(as.Date("1950-01-01"), as.Date("2020-01-01"),
+                            "10 years")) +
+  scale_y_log10() +
+  theme_minimal()
+
+ggsave("img/relatorio_g02_geom_line.png", width = 13, height = 7, units = "cm")
+```
+
+
+
+### Total de afetados no tempo
+
+Este gráfico nos mostra que a população afetada pode variar muito. Os desastres naturais podem escalar muito rápido afetando dezenas de milhões de pessoas.
+
+Poderíamos utilizar escala logarítmica no eixo y
+
+```{r}
+dados %>% 
+  mutate(year = as.Date(paste(year, 1, 1, sep = "-"))) %>% 
+  # group_by(year) %>% 
+  # summarise(total_affected = sum(total_affected, na.rm = T) / 1000000) %>% 
+  ggplot(aes(x = year, y = total_affected)) +
+  geom_point(alpha = 0.3) +
+  #geom_smooth(method = "lm", formula = "y ~ x") +
+  labs(title = "1C - População afetada por grandes desastres naturais",
+       #subtitle = "Total por ano no Brasil (milhões)",
+       y = "População afetada", x = "Ano") +
+  scale_y_log10() +
+  #theme_classic()
+  theme_minimal() +
+  theme(plot.title.position = "plot")  # Alinha título totalmente à esquerda
+
+
+
+ggsave("img/relatorio_g03.png", width = 13, height = 7, units = "cm")
+```
+
+
+### Prejuízo total ($) no tempo
+
+```{r}
+dados %>% 
+  mutate(year = as.Date(paste(year, 1, 1, sep = "-"))) %>% 
+  # group_by(year) %>% 
+  # summarise(total_damages_adjusted_000_us = sum(total_damages_adjusted_000_us, na.rm = T) /
+  #             1000000) %>% 
+  ggplot(aes(x = year, y = total_damages_adjusted_000_us)) +
+  geom_point(alpha = 0.3) +
+  #geom_smooth(method = "lm", formula = "y ~ x") +
+  labs(title = "1D - Prejuízo por grandes desastres naturais",
+       #subtitle = "Total por ano no Brasil (milhões de dólares corrigidos)",
+       y = "Prejuízos (US$)", x = "Ano") +
+  scale_y_log10() +
+  #theme_classic()
+  theme_minimal()
+
+ggsave("img/relatorio_g04.png", width = 13, height = 7, units = "cm")
+```
+
+
+
+## Acumulado por mês
+
+### Desastres por mês
+
+```{r}
+dados %>% 
+  ggplot(aes(start_month, fill = subgrupo)) +
+  geom_bar() +
+  scale_x_continuous(breaks = seq(1, 12, 1)) +
+  labs(title = "2A - Ocorrências de grandes desastres naturais",
+       subtitle = "Total por mês no Brasil desde 1948", y = "", x = "Mês",
+       fill = "Subgrupo") +
+  theme_minimal()
+
+ggsave("img/relatorio_g05.png", width = 13, height = 7, units = "cm")
+```
+
+
+### Mortes por mês
+
+```{r}
+dados %>% 
+  group_by(start_month, subgrupo) %>% 
+  summarise(mortes = sum(total_deaths, na.rm = T)) %>% 
+  ggplot(aes(x = start_month, y = mortes, fill = subgrupo)) +
+  geom_col() +
+  scale_x_continuous(breaks = seq(1, 12, 1)) +
+  labs(title = "2B - Mortes por grandes desastres naturais",
+       subtitle = "Total por mês no Brasil desde 1948",
+       y = "", x = "Mês", fill = "Subgrupo") +
+  theme_minimal()
+
+ggsave("img/relatorio_g06.png", width = 13, height = 7, units = "cm")
+```
+
+
+
+### Total de afetados por mês
+
+```{r}
+dados %>% 
+  group_by(start_month, subgrupo) %>% 
+  summarise(afetados = sum(total_affected, na.rm = T) / 1000000) %>% 
+  ggplot(aes(x = start_month, y = afetados, fill = subgrupo)) +
+  geom_col() +
+  scale_x_continuous(breaks = seq(1, 12, 1)) +
+  labs(title = "2C - População afetada por grandes desastres naturais",
+       subtitle = "Total por mês no Brasil desde 1948 (milhões)",
+       y = "", x = "Mês", fill = "Subgrupo") +
+  theme_minimal()
+
+ggsave("img/relatorio_g07.png", width = 13, height = 7, units = "cm")
+```
+
+
+
+
+### Prejuízo total ($) por mês
+
+```{r}
+dados %>% 
+  group_by(start_month, subgrupo) %>% 
+  summarise(prejuizo = sum(total_damages_adjusted_000_us, na.rm = T) / 1000000) %>% 
+  ggplot(aes(x = start_month, y = prejuizo, fill = subgrupo)) +
+  geom_col() +
+  scale_x_continuous(breaks = seq(1, 12, 1)) +
+  labs(title = "2D - Prejuízo por grandes desastres naturais",
+       subtitle = "Total por mês no Brasil desde 1948 (milhões de dólares, corrigidos)",
+       y = "", x = "Mês", fill = "Subgrupo") +
+  theme_minimal()
+
+ggsave("img/relatorio_g08.png", width = 13, height = 7, units = "cm")
+```
+
+
+
+
+## Tabela resumo
+
+```{r}
+library(inspectdf)
+
+dados %>% 
+  select(disaster_subgroup, disaster_type, disaster_subtype, total_deaths,
+         total_affected, total_damages_adjusted_000_us) %>% 
+  inspect_num() %>% 
+  paged_table()
+```
+
+
+
+
+## Tabela de análise descritiva
+
+
+### Mortes
+
+```{r}
+dados %>% 
+  select(disaster_subgroup, disaster_type, disaster_subtype, total_deaths,
+         total_affected, total_damages_adjusted_000_us) %>% 
+  group_by(disaster_subgroup, disaster_type) %>% 
+  summarise(freq = sum(total_deaths, na.rm = T),
+            freq_rel = round(100 * sum(total_deaths, na.rm = T) /
+                               sum(dados$total_deaths, na.rm = T)),
+            média = round(mean(total_deaths, na.rm = T)),
+            desvpad = round(sd(total_deaths, na.rm = T)),
+            mediana = round(median(total_deaths, na.rm = T)),
+            iqr = round(IQR(total_deaths, na.rm = T)),
+            máx = max(total_deaths, na.rm = T)) %>% 
+  filter(freq > 0) %>% 
+  kable(align = "llrrrrrrr", 
+               col.names = c("Subgrupo", "Tipo", "Freq.", "Freq. (%)", "Média",
+                             "Desvpad", "Mediana", "IQR", "Máx."),
+               #table.attr = "class=\"striped\"",
+               format = "html") %>% 
+  kable_paper("hover", full_width = T) %>% 
+  column_spec(1, bold = T, border_right = F) %>% 
+  column_spec(2, bold = T, border_right = F)
+```
+
+
+
+
+### Pessoas afetadas
+
+```{r}
+dados %>% 
+  select(disaster_subgroup, disaster_type, disaster_subtype, total_affected) %>% 
+  group_by(disaster_subgroup, disaster_type) %>% 
+  summarise(freq = sum(total_affected, na.rm = T),
+            freq_rel = round(100 * sum(total_affected, na.rm = T) /
+                               sum(dados$total_affected, na.rm = T)),
+            média = round(mean(total_affected, na.rm = T)),
+            desvpad = round(sd(total_affected, na.rm = T)),
+            mediana = round(median(total_affected, na.rm = T)),
+            iqr = round(IQR(total_affected, na.rm = T)),
+            máx = max(total_affected, na.rm = T)) %>% 
+  filter(freq > 0) %>% 
+  kable(align = "llrrrrrrr", 
+               col.names = c("Subgrupo", "Tipo", "Freq.", "Freq. (%)", "Média",
+                             "Desvpad", "Mediana", "IQR", "Máx."),
+               #table.attr = "class=\"striped\"",
+               format = "html") %>% 
+  kable_paper("hover", full_width = T) %>% 
+  column_spec(1, bold = T, border_right = F) %>% 
+  column_spec(2, bold = T, border_right = F)
+```
+
+
+
+
+### Prejuízo
+
+```{r}
+dados %>% 
+  select(disaster_subgroup, disaster_type, disaster_subtype, total_damages_adjusted_000_us) %>% 
+  group_by(disaster_subgroup, disaster_type) %>% 
+  summarise(freq = sum(total_damages_adjusted_000_us, na.rm = T),
+            freq_rel = round(100 * sum(total_damages_adjusted_000_us, na.rm = T) /
+                               sum(dados$total_damages_adjusted_000_us, na.rm = T)),
+            média = round(mean(total_damages_adjusted_000_us, na.rm = T)),
+            desvpad = round(sd(total_damages_adjusted_000_us, na.rm = T)),
+            mediana = round(median(total_damages_adjusted_000_us, na.rm = T)),
+            iqr = round(IQR(total_damages_adjusted_000_us, na.rm = T)),
+            máx = max(total_damages_adjusted_000_us, na.rm = T)) %>% 
+  filter(freq > 0) %>% 
+  kable(align = "llrrrrrrr", 
+               col.names = c("Subgrupo", "Tipo", "Freq.", "Freq. (%)", "Média",
+                             "Desvpad", "Mediana", "IQR", "Máx."),
+               #table.attr = "class=\"striped\"",
+               format = "html") %>% 
+  kable_paper("hover", full_width = T) %>% 
+  column_spec(1, bold = T, border_right = F) %>% 
+  column_spec(2, bold = T, border_right = F)
+```
+
+
+
+

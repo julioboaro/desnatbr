@@ -12,12 +12,13 @@ library(dplyr)
 library(readr)
 library(janitor)
 library(readODS)
+library(stringi)  # stri_trans_general()
+library(stringr)  # str_to_title()
+library(rmarkdown)
 ```
 
 
 ## Importação
-
-Esta é uma área de texto para apresentar as análises:
 
 ```{r}
 dados <- readxl::read_xlsx("data/emdat_public_2022_05_02_query_uid-MrgSmc.xlsx",
@@ -43,7 +44,8 @@ glimpse(dados)
 
 ```{r}
 dados %>% 
-  count(disaster_group)
+  count(disaster_group) %>% 
+  paged_table()
 ```
 
 
@@ -51,7 +53,8 @@ dados %>%
 
 ```{r}
 dados %>% 
-  count(disaster_subgroup)
+  count(disaster_subgroup, sort = T) %>% 
+  paged_table()
 ```
 
 
@@ -61,7 +64,9 @@ dados %>%
 ```{r}
 dados %>% 
   filter(disaster_group == "Natural") %>% 
-  count(disaster_subgroup, disaster_type, disaster_subtype, disaster_subsubtype, sort = T)
+  count(disaster_subgroup, disaster_type, disaster_subtype,
+        disaster_subsubtype, sort = T) %>% 
+  paged_table()
 ```
 
 
@@ -72,7 +77,8 @@ dados %>%
 ```{r}
 dados %>% 
   filter(disaster_group == "Technological") %>% 
-  count(disaster_subgroup, disaster_type, disaster_subtype, sort = T)
+  count(disaster_subgroup, disaster_type, disaster_subtype, sort = T) %>% 
+  paged_table()
 ```
 
 
@@ -82,7 +88,8 @@ dados %>%
 ```{r}
 dados <- dados %>% 
   filter(disaster_group == "Natural")
-dados
+dados %>% 
+  paged_table()
 ```
 
 
@@ -94,60 +101,114 @@ A partir daqui precisamos separar os eventos por unidades territoriais político
 ```{r}
 dados <- dados %>% 
   tidyr::separate_rows(admin1_code, sep = ";") %>%
-  tidyr::separate_rows(admin2_code, sep = ";")
+  tidyr::separate_rows(admin2_code, sep = ";") %>% 
+  # Converte para funcionar join no próximo chunk
+  mutate(admin1_code = as.integer(admin1_code),
+         admin2_code = as.integer(admin2_code))
 
 dados %>%  # Conferindo
-  select(dis_no, adm_level, admin1_code, admin2_code)
+  select(dis_no, adm_level, admin1_code, admin2_code) %>% 
+  paged_table()
 ```
 
 
-## Carrega codificação GAUL
+## Codificação GAUL
 
-Somente nível admin1 (Estados)
-
-Code List (Gaul - Global - Admin 1)
-Fonte: https://data.amerigeoss.org/nl/dataset/regional-boundaries-gaul-global-admin-1
+Rodar antes o script 1_junta_gaul1_gaul2.R
 
 ```{r}
-gaul1 <- read_csv("data/gaul_adm1.csv",
-                 col_types = cols(gaul_adm1 = "c"))
+gaul <- read_csv("data/gaul_br_adm1e2.csv", col_types = cols(gaul_adm1 = "i",
+                                                             gaul_adm2 = "i"))
 
-gaul2 <- read_csv("data/gaul_adm2.csv",
-                 col_types = cols(gaul_adm2 = "c"))
+gaul_estados <- gaul %>% 
+  distinct(gaul_adm1, adm1_name) %>% 
+  filter(!is.na(gaul_adm1))  # Remove NA
 
+gaul_municipios <- gaul %>% 
+  # Junta rótulo de Município com de Estado para remover ambiguidade
+  mutate(adm2_name = paste(adm2_name, "-", adm1_name)) %>% 
+  select(gaul_adm2, adm2_name)
+
+rm(gaul)
 ```
 
 
-## Codificação IBGE (Base dos Dados)
+Junta os rótulos dos nomes das localidades usando os códigos Gaul
+
+```{r}
+dados <- dados %>% 
+  left_join(gaul_estados, by = c("admin1_code" = "gaul_adm1")) %>% 
+  left_join(gaul_municipios, by = c("admin2_code" = "gaul_adm2"))
+
+dados %>% 
+  select(geo_locations, admin1_code, adm1_name, admin2_code, adm2_name) %>% 
+  paged_table()
+```
+
+
+## Codificação IBGE
+
+Agora que temos os rótulos, podemos finalmente juntar o código IBGE que permitirá utilizar todos os indicadores que utilizam esta codificação.
 
 https://www.ibge.gov.br/explica/codigos-dos-municipios.php
 
 ```{r}
-mun <- read_ods("data/RELATORIO_DTB_BRASIL_MUNICIPIO.ods") %>% 
-  clean_names()
-
-# Selecionando o que interessa
-mun <- mun %>% 
+ibge <- read_ods("data/RELATORIO_DTB_BRASIL_MUNICIPIO.ods") %>% 
+  clean_names() %>% 
+  # Selecionando o que interessa
   select(uf, nome_uf, municipio, codigo_municipio_completo, nome_municipio)
 ```
 
 
-Problema: queremos cruzar nossos territórios com indicadores do IBGE mas não temos código IBGE na nossa base.
+## Tabelas de equivalência Gaul - IBGE
 
-Objetivo: Juntar códigos de Estados e Municípios do IBGE para podermos fazer cruzamentos. 
-
-Como? Com os nomes dos municípios e estados.
+Na base Gaul os rótulos dos Estados e Municípios estão no padrão ASCII (sem acentos gráficos) e os elementos de ligação têm inicial maiúscula, como "Rio De Janeiro" e "Abreu E Lima", etc. Então criamos tabelas de equivalência para posterior junção à base.
 
 ```{r}
-dados <- gaul1 %>% 
-  select(gaul_adm1, adm1_name) %>%
-  right_join(dados, by = c("gaul_adm1" = "admin1_code"))
+ibge_estados <- ibge %>% 
+  distinct(uf, nome_uf) %>% 
+  mutate(nome_uf2 = stri_trans_general(nome_uf, "Latin-ASCII"),
+         nome_uf2 = str_to_title(nome_uf2))
 
-dados <- gaul2 %>% 
-  select(gaul_adm2, adm2_name) %>%
-  right_join(dados, by = c("gaul_adm2" = "admin2_code"))
+ibge_municipios <- ibge %>% 
+  distinct(codigo_municipio_completo, nome_municipio, .keep_all = T) %>% 
+  mutate(nome_municipio2 = stri_trans_general(nome_municipio, "Latin-ASCII"),
+         nome_municipio2 = str_to_title(nome_municipio2),
+         nome_uf2 = stri_trans_general(nome_uf, "Latin-ASCII"),
+         nome_uf2 = str_to_title(nome_uf2),
+         # Remove ambiguidade
+         nome_municipio2 = paste(nome_municipio2, "-", nome_uf2)) %>% 
+  select(codigo_municipio_completo, nome_municipio, nome_municipio2)
+
+gaul_ibge_estados <- dados %>% 
+  distinct(admin1_code, adm1_name) %>% 
+  filter(!is.na(adm1_name)) %>% 
+  arrange(adm1_name) %>% 
+  left_join(ibge_estados, by = c("adm1_name" = "nome_uf2")) %>% 
+  select(-adm1_name)  # Trabalharemos apenas com códigos
+  
+
+gaul_ibge_mun <- dados %>% 
+  distinct(admin2_code, adm2_name) %>% 
+  filter(!is.na(adm2_name)) %>% 
+  arrange(adm2_name) %>% 
+  left_join(ibge_municipios, by = c("adm2_name" = "nome_municipio2")) %>% 
+  arrange(codigo_municipio_completo) %>% 
+  select(-adm2_name)
+  
 ```
 
+
+## Último passo: juntar código IBGE na base de desastres
+
+```{r}
+dados <- dados %>% 
+  left_join(gaul_ibge_estados, by = "admin1_code") %>% 
+  left_join(gaul_ibge_mun, by = "admin2_code")
+
+dados %>% 
+  write_csv("data/desastres_por_uf_e_mun.csv")
+```
 
 
 
